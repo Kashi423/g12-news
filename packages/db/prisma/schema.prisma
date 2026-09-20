@@ -1,0 +1,92 @@
+// G12 News database schema (PostgreSQL).
+// The connection URL lives in ../prisma.config.ts, not here (Prisma 7).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Must stay in sync with CATEGORY_IDS in packages/config/src/categories.ts
+// (packages/db/src/category-check.ts enforces this at type-check time).
+enum Category {
+  PAKISTAN
+  WORLD
+  POLITICS
+  BUSINESS
+  SPORTS
+  SHOWBIZ
+  TECHNOLOGY
+  HEALTH
+  MISCELLANEOUS
+}
+
+enum ArticleStatus {
+  PUBLISHED
+  DRAFT
+  // AI-flagged duplicate or low-quality story; kept for auditing, never shown publicly.
+  REJECTED
+}
+
+model Source {
+  id            String    @id @default(cuid())
+  name          String
+  rssUrl        String    @unique
+  // Default category for stories from this feed; the AI may still re-categorize each article.
+  category      Category  @default(PAKISTAN)
+  isActive      Boolean   @default(true)
+  lastFetchedAt DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+
+  articles   Article[]
+  ingestLogs IngestLog[]
+}
+
+model Article {
+  id           String        @id @default(cuid())
+  slug         String        @unique
+  title        String
+  excerpt      String
+  // AI-rewritten summary. NOT the original outlet's full text.
+  body         String
+  imageUrl     String?
+  category     Category
+  tags         String[]      @default([])
+  sourceId     String
+  source       Source        @relation(fields: [sourceId], references: [id])
+  // Snapshot of the outlet name, kept even if the Source row is renamed.
+  sourceName   String
+  // Link to the original article; unique so the same story is never ingested twice.
+  sourceUrl    String        @unique
+  publishedAt  DateTime
+  ingestedAt   DateTime      @default(now())
+  isBreaking   Boolean       @default(false)
+  // 0-10, clamped in application code.
+  urgencyScore Int           @default(0)
+  viewCount    Int           @default(0)
+  status       ArticleStatus @default(PUBLISHED)
+
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([category, status, publishedAt(sort: Desc)])
+  @@index([isBreaking, status, publishedAt(sort: Desc)])
+  @@index([status, viewCount(sort: Desc)])
+  @@index([sourceId])
+}
+
+model IngestLog {
+  id             String   @id @default(cuid())
+  sourceId       String
+  source         Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  runAt          DateTime @default(now())
+  itemsFound     Int      @default(0)
+  itemsPublished Int      @default(0)
+  itemsSkipped   Int      @default(0)
+  error          String?
+
+  @@index([sourceId, runAt(sort: Desc)])
+  @@index([runAt(sort: Desc)])
+}

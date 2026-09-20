@@ -1,0 +1,32 @@
+{
+  "name": "g12-news",
+  "version": "0.1.0",
+  "private": true,
+  "description": "G12 News — Pakistan, As It Happens. AI-automated Pakistani news portal.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "npm run dev -w @g12/web",
+    "dev:worker": "npm run dev -w @g12/worker",
+    "build": "npm run build -w @g12/web",
+    "start": "npm run start -w @g12/web",
+    "start:worker": "npm run start -w @g12/worker",
+    "ingest:once": "npm run ingest:once -w @g12/worker --",
+    "ingest:dry": "npm run ingest:dry -w @g12/worker --",
+    "ingest:sample": "npm run ingest:sample -w @g12/worker --",
+    "seed": "npm run seed -w @g12/worker --",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:generate": "npm run generate -w @g12/db",
+    "db:migrate": "npm run migrate:dev -w @g12/db",
+    "db:deploy": "npm run migrate:deploy -w @g12/db",
+    "db:studio": "npm run studio -w @g12/db",
+    "postinstall": "npm run db:generate"
+  }
+}

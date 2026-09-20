@@ -1,0 +1,33 @@
+{
+  "name": "@g12/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone Node.js process: RSS ingestion + AI pipeline, scheduled with BullMQ or node-cron.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "ingest:once": "tsx src/scripts/ingest-once.ts",
+    "ingest:dry": "tsx src/scripts/ingest-once.ts --dry-run",
+    "ingest:sample": "tsx src/scripts/ingest-once.ts --limit=2",
+    "seed": "tsx src/scripts/seed-sources.ts",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.127.0",
+    "@g12/config": "*",
+    "@g12/db": "*",
+    "bullmq": "^6.3.8",
+    "dotenv": "^18",
+    "ioredis": "^6.0.0",
+    "node-cron": "^4.6.0",
+    "rss-parser": "^3.13.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3"
+  }
+}
