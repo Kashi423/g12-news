@@ -19,6 +19,24 @@ describe("text", () => {
     assert.equal(htmlToText("&lt;p&gt;Escaped &lt;b&gt;markup&lt;/b&gt;&lt;/p&gt;"), "Escaped markup");
   });
 
+  it("decodes the extra named entities feeds send, and drops the invisible soft hyphen", () => {
+    assert.equal(decodeEntities("&copy; 2026 &laquo;G12&raquo; 25&deg; &pound;5 &euro;6 &bull; a&middot;b 2&times;3"), "© 2026 «G12» 25° £5 €6 • a·b 2×3");
+    assert.equal(htmlToText("Khyber Pakh&shy;tunkhwa and Bhu&#173;tto and Bhut&#xAD;to"), "Khyber Pakhtunkhwa and Bhutto and Bhutto");
+    assert.equal(decodeEntities("&bogus; stays"), "&bogus; stays", "unknown entities are left alone");
+  });
+
+  it("decodes accented letters with the right case, and drops zero-width joiners", () => {
+    assert.equal(decodeEntities("M&uuml;ller &Eacute;cole Zo&euml; &szlig; &Ntilde;&ntilde; &AElig;&aelig; &yuml; &Agrave;&agrave;"), "Müller École Zoë ß Ññ Ææ ÿ Àà");
+    assert.equal(decodeEntities("AT&AMP;T &Nbsp;x"), "AT&T  x", "an all-caps or odd-case spelling still decodes");
+    assert.equal(htmlToText("a&zwnj;b&#8204;c&zwj;d&#x200B;e"), "abcde");
+    assert.equal(decodeEntities("&times;&divide;"), "×÷", "the Latin-1 run must not shift: times and divide sit inside it");
+  });
+
+  it("decodes text that was escaped twice, without touching ordinary text", () => {
+    assert.equal(htmlToText("People&amp;rsquo;s voice &amp;amp; more"), "People’s voice & more");
+    assert.equal(htmlToText("Q&A and R&D; plus AT&T"), "Q&A and R&D; plus AT&T");
+  });
+
   it("truncates on a word boundary", () => {
     assert.equal(truncate("one two three four five", 14), "one two three…");
     assert.equal(truncate("short", 14), "short");

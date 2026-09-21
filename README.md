@@ -135,14 +135,14 @@ Every hosted AI needs an API key; Groq's is free, needs no credit card, and take
 1. Sign up at <https://console.groq.com> and open **API Keys** → **Create API Key**.
 2. Put it in `.env` as `GROQ_API_KEY=...`. If it is the only AI key set, the worker uses Groq automatically (or set `AI_PROVIDER=groq`).
 
-**What you get.** The worker uses `openai/gpt-oss-120b` first and falls back to `openai/gpt-oss-20b`. On Groq's free plan each model has its own small budget (at the time of writing: 30 requests and 8,000 tokens per minute, 1,000 requests and 200,000 tokens per day; check the [current limits](https://console.groq.com/docs/rate-limits), they can change). A story costs roughly 2,500 tokens, so the two models together cover **about 150–170 stories a day, roughly half of what the 29 feeds produce**. Add more models from your Groq console's limits page to `GROQ_MODELS` to raise that.
+**What you get.** The worker uses `openai/gpt-oss-120b` first and falls back to `openai/gpt-oss-20b`. On Groq's free plan each model has its own small budget (at the time of writing: 30 requests and 8,000 tokens per minute, 1,000 requests and 200,000 tokens per day; check the [current limits](https://console.groq.com/docs/rate-limits), they can change). A story costs roughly 2,500 tokens, so the two models together cover **about 150–170 stories a day, well under half of what the 33 feeds produce**. Add more models from your Groq console's limits page to `GROQ_MODELS` to raise that.
 
 **How the pipeline copes with such a small budget**
 - **Gentler defaults** when Groq is the provider: a pass every 30 minutes, at most 5 new stories per pass (`INGEST_MAX_ITEMS_PER_RUN`), at most 3 per source. The per-pass limit is spread across sources, freshest first, so one busy outlet can't use the whole budget.
 - **Model fallback and pacing:** a rate-limited model is skipped for a while; requests are sent one at a time and slowed from Groq's rate-limit headers.
 - **Graceful stop:** when both models have spent their daily budget the run says so, defers the remaining stories to the next run (nothing is lost or half-saved) and records it in `IngestLog`.
 
-**Quality.** Free open models are more likely than Claude to invent details, especially from feeds that give only a headline and a sentence (Express Tribune, ARY, BBC, Cricinfo). The code checks catch copied text, wrong lengths and invalid categories with any model, but **they cannot detect a made-up fact**. Read what `npm run ingest:sample` produces before trusting it, and use Claude (`ANTHROPIC_API_KEY`) if accuracy matters more than cost.
+**Quality.** Free open models are more likely than Claude to invent details, especially from feeds that give only a headline and a sentence (ARY, BBC, Cricinfo, and the one-sentence feeds of Geo, The News and The Nation). The code checks catch copied text, wrong lengths and invalid categories with any model, but **they cannot detect a made-up fact**. Read what `npm run ingest:sample` produces before trusting it, and use Claude (`ANTHROPIC_API_KEY`) if accuracy matters more than cost.
 
 Not verified against the live Groq service: the request format was built from Groq's documentation and tested against a local stand-in. If the first `ingest:sample` shows errors, the message names the problem; the worker also steps down to simpler request formats automatically if a model rejects one.
 
@@ -190,7 +190,7 @@ npm run ingest:once -- --source=dawn --limit=3        # bash, cmd, zsh
 
 ### Cost
 
-Groq's free plan costs nothing. With Claude, every new item is one call of roughly 2,000 tokens in and 600 out. About 300–400 items a day are fresh across the 29 starter feeds, which comes to roughly:
+Groq's free plan costs nothing. With Claude, every new item is one call of roughly 2,000 tokens in and 600 out. About 300–400 items a day were fresh across the first 29 starter feeds (the four added since, above all The Nation, add more), which comes to roughly:
 
 | Claude model (`AI_MODEL`) | Per day (estimate) |
 | --- | --- |
@@ -202,7 +202,7 @@ These are estimates, not measurements. `ingest:once` prints the real token usage
 
 ### Feeds
 
-The 29 starter feeds cover all nine categories. Each was fetched and parsed on 2026-09-20 and had an item under 48 hours old. Not included, and why: **Samaa TV** (no RSS feed found), **Al Jazeera** (the site resets connections from the development machine, so it could not be verified), **Reuters** (public RSS discontinued), **AP** (blocks feed requests), **Geo Urdu** and **Dunya** (serve HTML, not RSS), and dedicated Politics feeds (Tribune's and The News's are months stale) — political stories arrive through the general feeds and are filed as Politics by the AI. BBC, The Guardian and France 24 stand in for the wire services. Dawn and Business Recorder put the full article text in their feeds; Express Tribune, ARY, BBC and Cricinfo give only a headline and a sentence, so briefs from those are necessarily short.
+The 33 starter feeds cover all nine categories. Twenty-nine were fetched and parsed on 2026-09-20 and had an item under 48 hours old; four were added on 2026-09-21 after being run through the worker's own parser (**The Express Tribune "Latest"**, **The Nation**, **The News "World"**, **Geo News "World"**). Not included, and why: **Samaa TV** (no RSS feed found), **Al Jazeera** (the site resets connections from the development machine, so it could not be verified), **Reuters** (public RSS discontinued), **AP** (blocks feed requests), **Geo Urdu** and **Dunya** (serve HTML, not RSS), dedicated Politics, Analysis and Cricket feeds (Tribune's and The News's are weeks or months stale; a feed that parses is not necessarily a live one, so check the newest item's age) — political stories arrive through the general feeds and are filed as Politics by the AI. The Urdu feeds UrduPoint and Qaumi Awaz were checked and left out: the site is English-only, and UrduPoint's items carry no text beyond the headline. BBC, The Guardian and France 24 stand in for the wire services. Dawn, Business Recorder and the Express Tribune put (nearly) the full article text in their feeds; Geo, The News and The Nation give one sentence, and ARY, BBC and Cricinfo a headline and a sentence, so briefs from those are necessarily short. The four Tribune section feeds (Pakistan, Business, Life & Style, Technology) were 16 to 26 hours stale when checked, so "Latest" carries Tribune's current stories. Tribune's pictures come in a non-standard `<image><img/></image>` block, which the parser reads.
 
 ## Scripts (run from the repo root)
 

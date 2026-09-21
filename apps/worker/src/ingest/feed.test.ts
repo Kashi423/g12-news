@@ -76,8 +76,64 @@ describe("parseFeedXml", () => {
     assert.ok((cleanImageCredit("A".repeat(500))?.length ?? 999) <= 120);
   });
 
+  it("finds The Express Tribune's picture, which sits in its own <image><img/></image> block", async () => {
+    // Shape copied from tribune.com.pk/feed/latest (whitespace included).
+    const tribune = `<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0"><channel><title>Tribune</title>
+			<item>
+			<title>Cops told about intellectual property</title>
+			<link>https://tribune.com.pk/story/2630505/cops-told-about-intellectual-property</link>
+			<pubDate>Mon, 21 Sep 26 02:24:56 +0500</pubDate>
+			<description><![CDATA[An awareness workshop was organised at the Police Lines.]]></description>
+			<image>
+				    <img src="https://i.tribune.com.pk/media/images/intellectual-property-rights1789959021-0/intellectual-property-rights1789959021-0.jpg" class="featured_image"/>
+            </image>
+			</item><item>
+			<title>A story with no picture at all</title>
+			<link>https://tribune.com.pk/story/2630504/no-picture</link>
+			<description>Plain text.</description>
+			</item></channel></rss>`;
+    const [withPicture, without] = await parseFeedXml(tribune);
+    assert.equal(withPicture?.imageUrl, "https://i.tribune.com.pk/media/images/intellectual-property-rights1789959021-0/intellectual-property-rights1789959021-0.jpg");
+    assert.equal(without?.imageUrl, null);
+  });
+
+  it("a standard media picture still wins over a wrapped one", async () => {
+    const xml = `<?xml version="1.0"?><rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>X</title>
+<item><title>Both kinds</title><link>https://example.com/1</link><media:content url="https://example.com/standard.jpg" medium="image"/><image><img src="https://example.com/wrapped.jpg"/></image></item>
+<item><title>Unsafe wrapped picture</title><link>https://example.com/2</link><image><img src="javascript:alert(1)"/></image></item>
+</channel></rss>`;
+    const [both, unsafe] = await parseFeedXml(xml);
+    assert.equal(both?.imageUrl, "https://example.com/standard.jpg");
+    assert.equal(unsafe?.imageUrl, null, "only http(s) addresses are accepted");
+  });
+
+  it("decodes HTML entities that a feed puts inside CDATA (The Nation's style), not just numeric ones", async () => {
+    const nation = `<?xml version="1.0"?><rss version="2.0"><channel><title>Nation</title>
+<item><title>Bilawal pays tribute</title><link>https://www.nation.com.pk/21-Sep-2026/bilawal</link>
+<description><![CDATA[ISLAMABAD  -  Pakistan People&rsquo;s Party (PPP) Chairman Bilawal Bhu&shy;tto said Khyber Pakh&shy;tunkhwa&nbsp;will vote&hellip; soon &amp; fairly.]]></description></item>
+</channel></rss>`;
+    const [item] = await parseFeedXml(nation);
+    assert.equal(item?.snippet, "ISLAMABAD - Pakistan People’s Party (PPP) Chairman Bilawal Bhutto said Khyber Pakhtunkhwa will vote… soon & fairly.");
+  });
+
+  it("also repairs text that a feed escaped twice inside CDATA", async () => {
+    const xml = `<?xml version="1.0"?><rss version="2.0"><channel><title>X</title><item><title>Twice</title><link>https://example.com/t</link><description><![CDATA[People&amp;rsquo;s voice &amp;amp; more &#173;joined]]></description></item></channel></rss>`;
+    const [item] = await parseFeedXml(xml);
+    assert.equal(item?.snippet, "People’s voice & more joined");
+  });
+
   it("sanitizeXml leaves valid entities alone", () => {
     assert.equal(sanitizeXml("a &amp; b &lt; c &#38; d &#x26; e & f"), "a &amp; b &lt; c &#38; d &#x26; e &amp; f");
+  });
+
+  it("sanitizeXml repairs a bare & outside CDATA but never touches text inside it", () => {
+    assert.equal(
+      sanitizeXml("<t>Tom & Jerry &rsquo;</t><d><![CDATA[a & b &rsquo; c]]></d><u>x & y</u><d2><![CDATA[second &shy; block]]></d2>"),
+      "<t>Tom &amp; Jerry &amp;rsquo;</t><d><![CDATA[a & b &rsquo; c]]></d><u>x &amp; y</u><d2><![CDATA[second &shy; block]]></d2>",
+    );
+    assert.equal(sanitizeXml("no cdata & here"), "no cdata &amp; here");
+    assert.equal(sanitizeXml("<d><![CDATA[never closed & open"), "<d><![CDATA[never closed &amp; open", "an unterminated CDATA is not a CDATA section");
   });
 });
 

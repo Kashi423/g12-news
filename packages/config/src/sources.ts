@@ -16,19 +16,29 @@ export interface SourceDef {
 /**
  * Starter RSS feeds. Each was fetched on 2026-09-20 and returned valid RSS whose newest item was
  * under 48 hours old. Feeds change paths often, so `npm run seed` re-verifies them before inserting.
+ * Four more were added on 2026-09-21 after being run through the worker's own parser: The Express
+ * Tribune "Latest", The Nation, The News "World" and Geo News "World".
  *
  * Checked and deliberately absent: Samaa TV (no feed found), Al Jazeera (connection reset from the
  * dev machine, unverifiable), Reuters (discontinued public RSS), AP (403), Geo Urdu and Dunya (serve
- * HTML, not RSS), and dedicated Politics / Health feeds from Tribune and The News (stale for
- * months). Politics stories arrive through the general feeds and are filed by the AI.
+ * HTML, not RSS), and dedicated Politics / Health / Analysis / Cricket feeds from Tribune and The
+ * News (stale for weeks or months: check the newest item's age, valid RSS is not enough). Politics
+ * stories arrive through the general feeds and are filed by the AI. Urdu-language feeds (UrduPoint,
+ * Qaumi Awaz) were checked and left out: the site is English-only, and UrduPoint's items carry no
+ * text beyond the headline.
  *
- * Note: Dawn and Business Recorder include full article text in their feeds; Express Tribune, ARY,
- * BBC and Cricinfo give only a headline and a sentence, so briefs from those are necessarily short.
+ * Note: Dawn, Business Recorder and the Express Tribune feeds include (nearly) the full article
+ * text; Geo, The News and The Nation give one sentence, and ARY, BBC and Cricinfo a headline and a
+ * sentence, so briefs from those are necessarily short. The Tribune section feeds below (Pakistan,
+ * Business, Life & Style, Technology) were 16 to 26 hours stale when checked; "Latest" is the one
+ * that carries its current stories.
  */
 export const SOURCES: readonly SourceDef[] = [
   // Pakistan
   { name: "Dawn — Pakistan", outlet: "Dawn", rssUrl: "https://www.dawn.com/feeds/pakistan", category: "PAKISTAN" },
   { name: "The Express Tribune — Pakistan", outlet: "The Express Tribune", rssUrl: "https://tribune.com.pk/feed/pakistan", category: "PAKISTAN" },
+  { name: "The Express Tribune — Latest", outlet: "The Express Tribune", rssUrl: "https://tribune.com.pk/feed/latest", category: "PAKISTAN" },
+  { name: "The Nation — Newspaper", outlet: "The Nation", rssUrl: "https://www.nation.com.pk/rss/newspaper", category: "PAKISTAN" },
   { name: "Geo News — Pakistan", outlet: "Geo News", rssUrl: "https://www.geo.tv/rss/1/1", category: "PAKISTAN" },
   { name: "The News — Latest", outlet: "The News International", rssUrl: "https://www.thenews.com.pk/rss/1/0", category: "PAKISTAN" },
   { name: "ARY News", outlet: "ARY News", rssUrl: "https://arynews.tv/feed/", category: "PAKISTAN" },
@@ -36,6 +46,8 @@ export const SOURCES: readonly SourceDef[] = [
 
   // World (international feeds: Pakistan-relevant or major stories only)
   { name: "Dawn — World", outlet: "Dawn", rssUrl: "https://www.dawn.com/feeds/world", category: "WORLD" },
+  { name: "Geo News — World", outlet: "Geo News", rssUrl: "https://www.geo.tv/rss/1/2", category: "WORLD" },
+  { name: "The News — World", outlet: "The News International", rssUrl: "https://www.thenews.com.pk/rss/1/2", category: "WORLD" },
   { name: "BBC News — World", outlet: "BBC News", rssUrl: "https://feeds.bbci.co.uk/news/world/rss.xml", category: "WORLD" },
   { name: "BBC News — Asia", outlet: "BBC News", rssUrl: "https://feeds.bbci.co.uk/news/world/asia/rss.xml", category: "WORLD" },
   { name: "The Guardian — World", outlet: "The Guardian", rssUrl: "https://www.theguardian.com/world/rss", category: "WORLD" },

@@ -12,7 +12,37 @@ const NAMED_ENTITIES: Record<string, string> = {
   rsquo: "’",
   ldquo: "“",
   rdquo: "”",
+  // Feeds (The Nation's, for one) also send these; &shy; is an invisible hyphenation hint that would
+  // otherwise split a word ("Pakh&shy;tunkhwa"), so it is dropped.
+  shy: "",
+  copy: "©",
+  reg: "®",
+  trade: "™",
+  bull: "•",
+  middot: "·",
+  laquo: "«",
+  raquo: "»",
+  deg: "°",
+  euro: "€",
+  pound: "£",
+  times: "×",
+  ensp: " ",
+  emsp: " ",
+  thinsp: " ",
+  // Invisible joiners and direction marks (Tribune sends &zwnj;): noise in English text, so dropped.
+  zwnj: "",
+  zwj: "",
+  lrm: "",
+  rlm: "",
 };
+
+// The Latin-1 letters (Agrave ... yuml), in code-point order from U+00C0. Their names are case-sensitive:
+// &Eacute; is "É" and &eacute; is "é".
+"Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml"
+  .split(" ")
+  .forEach((name, index) => {
+    NAMED_ENTITIES[name] = String.fromCodePoint(0xc0 + index);
+  });
 
 export function decodeEntities(input: string): string {
   return input.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
@@ -20,7 +50,8 @@ export function decodeEntities(input: string): string {
       const code = entity[1]?.toLowerCase() === "x" ? Number.parseInt(entity.slice(2), 16) : Number.parseInt(entity.slice(1), 10);
       return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
     }
-    return NAMED_ENTITIES[entity.toLowerCase()] ?? match;
+    // Exact case first (&Eacute; vs &eacute;), then any case (&AMP;, &Nbsp;).
+    return NAMED_ENTITIES[entity] ?? NAMED_ENTITIES[entity.toLowerCase()] ?? match;
   });
 }
 
@@ -37,7 +68,10 @@ export function htmlToText(html: string): string {
     text = decodeEntities(text.replace(TAG, " "));
   }
   TAG.lastIndex = 0;
+  // Text escaped twice (a CDATA block holding "&amp;rsquo;") is still an entity after one pass.
+  if (/&(?:[a-z]{2,8}|#\d{1,7}|#x[0-9a-f]{1,6});/i.test(text)) text = decodeEntities(text);
   return text
+    .replace(/[­​-‏]/g, "") // invisible characters, however written (&shy;, &#173;, &zwnj;, &#8204;...)
     .replace(/\bThe post .{0,300}? appeared first on .{0,120}$/i, "") // WordPress footer
     .replace(/\s*(\[…\]|\[\.\.\.\]|…)\s*$/u, "")
     .replace(/[ \t ]+/g, " ")

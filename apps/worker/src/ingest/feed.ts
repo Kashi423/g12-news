@@ -26,6 +26,8 @@ interface CustomItem {
   /** <media:credit> / <media:copyright> directly under the item. */
   mediaCredit?: unknown[];
   mediaCopyright?: unknown[];
+  /** The Express Tribune's own <image><img src="..." class="featured_image"/></image> block. */
+  imageBlock?: unknown;
   /** <content:encoded>: often the full article, while <description> is a short teaser. */
   contentEncoded?: string;
 }
@@ -37,6 +39,7 @@ const parser = new Parser<Record<string, never>, CustomItem>({
       ["media:thumbnail", "mediaThumbnail", { keepArray: true }],
       ["media:credit", "mediaCredit", { keepArray: true }],
       ["media:copyright", "mediaCopyright", { keepArray: true }],
+      ["image", "imageBlock"],
       ["content:encoded", "contentEncoded"],
     ],
   },
@@ -53,7 +56,12 @@ export function sanitizeXml(xml: string): string {
   return xml
     .replace(/^﻿/, "")
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
-    .replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, "&amp;");
+    // Text inside <![CDATA[ ... ]]> is literal, so an "&" there is not markup and is left alone. Escaping it
+    // would turn a named HTML entity such as &rsquo; into the visible text "&amp;rsquo;". Only the XML
+    // outside CDATA is repaired (odd pieces of the split are the CDATA sections).
+    .split(/(<!\[CDATA\[[\s\S]*?\]\]>)/)
+    .map((piece, index) => (index % 2 === 1 ? piece : piece.replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, "&amp;")))
+    .join("");
 }
 
 function httpUrl(value: string | undefined | null): string | null {
@@ -64,6 +72,25 @@ function httpUrl(value: string | undefined | null): string | null {
   } catch {
     return null;
   }
+}
+
+/** The first `src` of an <img> anywhere inside a parsed XML node (nothing else in the node is looked at). */
+function findImgSrc(node: unknown, depth = 0): string | undefined {
+  if (!node || typeof node !== "object" || depth > 4) return undefined;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findImgSrc(child, depth + 1);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  const attributes = (node as { $?: { src?: unknown } }).$;
+  if (typeof attributes?.src === "string") return attributes.src;
+  for (const child of Object.values(node)) {
+    const found = findImgSrc(child, depth + 1);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /** The story's picture, with known feed quirks fixed (see normalizeImageUrl) so the stored URL actually loads. */
@@ -81,6 +108,8 @@ function pickRawImage(item: Parser.Item & CustomItem): string | null {
     const url = httpUrl(node.$?.url);
     if (url && !/\.(mp4|webm|mp3)(\?|$)/i.test(url)) return url;
   }
+  const wrapped = httpUrl(findImgSrc(item.imageBlock));
+  if (wrapped) return wrapped;
   const inline = /<img\b[^>]*?\bsrc=["']([^"']+)["']/i.exec(`${item.contentEncoded ?? ""} ${item.content ?? ""}`);
   return httpUrl(inline?.[1] ? decodeEntities(inline[1]) : null);
 }
