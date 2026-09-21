@@ -1,0 +1,15 @@
+{
+  "_comment": "Image hosts Next.js may fetch and optimize. Measured from the starter RSS feeds on 2026-09-21. Images from any other host are still shown, but unoptimized (served straight from the source), so the image optimizer can never be used as an open proxy. `**.x` matches subdomains of x. Used by next.config.mjs and src/lib/images.ts.",
+  "hosts": [
+    "www.thenews.com.pk",
+    "i.dawn.com",
+    "www.geo.tv",
+    "p.imgci.com",
+    "i.guim.co.uk",
+    "i.brecorder.com",
+    "static.arynews.tv",
+    "ichef.bbci.co.uk",
+    "s.france24.com",
+    "propakistani.pk"
+  ]
+}

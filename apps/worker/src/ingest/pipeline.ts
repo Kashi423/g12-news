@@ -76,6 +76,7 @@ interface Candidate {
   description: string;
   publishedAt: Date;
   imageUrl: string | null;
+  imageCredit: string | null;
 }
 
 const OUTLET_BY_URL = new Map(SOURCES.map((s) => [s.rssUrl, s.outlet]));
@@ -186,7 +187,7 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
           continue;
         }
         seenUrls.add(url);
-        list.push({ source, report, outlet, title: item.title, url, description: item.snippet, publishedAt, imageUrl: item.imageUrl });
+        list.push({ source, report, outlet, title: item.title, url, description: item.snippet, publishedAt, imageUrl: item.imageUrl, imageCredit: item.imageCredit ?? null });
       }
       staged.push(list);
     }
@@ -261,6 +262,7 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
         excerpt: outcome.excerpt,
         body: outcome.summary,
         imageUrl: c.imageUrl,
+        imageCredit: c.imageUrl ? c.imageCredit : null,
         category: outcome.category,
         tags: outcome.tags,
         sourceId: c.source.id,

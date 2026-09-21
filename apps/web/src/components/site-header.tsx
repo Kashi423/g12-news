@@ -1,27 +1,35 @@
+import Image from "next/image";
 import Link from "next/link";
 import { SITE } from "@g12/config";
+import { LOGO } from "@/lib/brand";
+import { PrimaryNav } from "./layout/primary-nav";
+import { SearchOverlay } from "./layout/search-overlay";
 
-// Placeholder header: two-tone wordmark (red + blue, as in the logo) and the tagline.
-// Navigation arrives with the page designs.
+/**
+ * Main header: the G12 News logo, the category navigation and the search button.
+ * Phones: logo and search on the first row, the swipeable nav on a second row. Desktop: one row.
+ */
 export function SiteHeader() {
-  const [mark, ...rest] = SITE.name.split(" "); // "G12" + "News"
-
   return (
     <header className="border-b border-line bg-canvas">
-      {/* Red/blue rule echoing the logo's two blocks */}
-      <div className="flex h-1" aria-hidden="true">
-        <div className="w-1/3 bg-crimson" />
-        <div className="flex-1 bg-brand" />
-      </div>
-      <div className="container py-3">
-        <Link href="/" aria-label={`${SITE.name} — home`} className="inline-block leading-none">
-          <span className="block font-serif text-2xl font-black tracking-tight">
-            <span className="text-crimson">{mark}</span> <span className="text-brand">{rest.join(" ")}</span>
-          </span>
-          <span className="mt-1 block text-[11px] font-medium uppercase tracking-[0.14em] text-muted">
-            {SITE.tagline}
-          </span>
+      <div className="container flex flex-wrap items-center justify-between gap-x-6 lg:flex-nowrap">
+        <Link href="/" aria-label={`${SITE.name} — home`} className="order-1 flex items-center gap-3 py-2 lg:py-2.5">
+          <Image
+            src={LOGO.src}
+            alt=""
+            width={LOGO.width}
+            height={LOGO.height}
+            sizes="(min-width: 1024px) 92px, 72px"
+            loading="eager"
+            fetchPriority="high"
+            className="h-14 w-auto lg:h-[4.5rem]"
+          />
+          <span className="border-l border-line pl-3 text-[10px] font-semibold uppercase leading-snug tracking-[0.14em] text-muted sm:text-[11px]">{SITE.tagline}</span>
         </Link>
+        <div className="order-2 lg:order-3">
+          <SearchOverlay />
+        </div>
+        <PrimaryNav />
       </div>
     </header>
   );

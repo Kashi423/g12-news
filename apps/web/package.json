@@ -7,18 +7,22 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "brand:build": "node scripts/brand-assets.mjs"
   },
   "dependencies": {
     "@g12/config": "*",
     "@g12/db": "*",
     "next": "16.3.5",
+    "pg": "^8.23.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@next/env": "16.3.5",
     "@types/node": "^22",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.21",
@@ -26,6 +30,7 @@
     "eslint-config-next": "16.3.5",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.19",
+    "tsx": "^4.23.15",
     "typescript": "~5.9.3"
   }
 }

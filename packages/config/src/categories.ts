@@ -28,6 +28,12 @@ export interface CategoryDef {
   name: string;
   /** Plain-language scope; also fed to the AI categorizer so it uses the same definitions as the UI. */
   description: string;
+  /**
+   * One line for readers: the category page header and its meta description. Deliberately separate
+   * from `description` (which steers the AI), so it can be reworded without changing categorization.
+   * No trailing full stop: it is also spliced into a sentence.
+   */
+  tagline: string;
   /** Tag whose stories get priority placement inside the category (cricket leads Sports). */
   priorityTag?: string;
 }
@@ -38,30 +44,35 @@ export const CATEGORIES: readonly CategoryDef[] = [
     slug: "pakistan",
     name: "Pakistan",
     description: "Local news from across Pakistan: cities, provinces, crime, courts, weather events and national affairs.",
+    tagline: "Headlines from Pakistan's cities and provinces, its courts and national affairs",
   },
   {
     id: "WORLD",
     slug: "world",
     name: "World",
     description: "International news and foreign affairs outside Pakistan, including Pakistan's relations with other countries.",
+    tagline: "International news and foreign affairs, and Pakistan's place in the world",
   },
   {
     id: "POLITICS",
     slug: "politics",
     name: "Politics",
     description: "Government, parliament, political parties, elections, policy and the military establishment's role in politics.",
+    tagline: "Government, parliament, parties and policy: how Pakistan is run",
   },
   {
     id: "BUSINESS",
     slug: "business",
     name: "Business",
     description: "Economy, markets, PSX, the rupee, inflation, energy prices, trade, banking and companies.",
+    tagline: "The economy, the rupee, the stock market and the prices Pakistan pays",
   },
   {
     id: "SPORTS",
     slug: "sports",
     name: "Sports",
     description: "Cricket first, then hockey, football and all other sports, at home and abroad.",
+    tagline: "Cricket, football, and every other game Pakistan follows",
     priorityTag: "cricket",
   },
   {
@@ -69,24 +80,28 @@ export const CATEGORIES: readonly CategoryDef[] = [
     slug: "showbiz",
     name: "Showbiz",
     description: "Entertainment: film, television dramas, music, celebrities and fashion.",
+    tagline: "Film, television dramas, music and the celebrities Pakistan is talking about",
   },
   {
     id: "TECHNOLOGY",
     slug: "technology",
     name: "Technology",
     description: "Tech, telecom, startups, AI, gadgets, internet and cybersecurity.",
+    tagline: "Tech, telecom, startups and AI, in Pakistan and around the world",
   },
   {
     id: "HEALTH",
     slug: "health",
     name: "Health",
     description: "Public health, disease outbreaks, hospitals, medicine and wellbeing.",
+    tagline: "Hospitals, outbreaks, medicine and the health of the nation",
   },
   {
     id: "MISCELLANEOUS",
     slug: "miscellaneous",
     name: "Miscellaneous",
     description: "Viral, human-interest and offbeat stories, weather and anything that fits no other category.",
+    tagline: "Viral, offbeat and human-interest stories, and everything else worth a read",
   },
 ];
 
@@ -98,4 +113,9 @@ export const CATEGORY_BY_SLUG: Readonly<Record<string, CategoryDef>> = Object.fr
 
 export function isCategoryId(value: string): value is CategoryId {
   return (CATEGORY_IDS as readonly string[]).includes(value);
+}
+
+/** The category for a URL slug, or undefined. Unlike indexing CATEGORY_BY_SLUG, a slug like "constructor" cannot match. */
+export function categoryBySlug(slug: string): CategoryDef | undefined {
+  return CATEGORIES.find((c) => c.slug === slug);
 }

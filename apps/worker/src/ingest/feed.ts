@@ -1,3 +1,4 @@
+import { normalizeImageUrl } from "@g12/config";
 import Parser from "rss-parser";
 import type { IngestSettings } from "../settings";
 import { decodeEntities, htmlToText, truncate } from "./text";
@@ -9,14 +10,22 @@ export interface FeedItem {
   snippet: string;
   publishedAt: Date | null;
   imageUrl: string | null;
+  /** Photographer or agency the feed credited for the image (Media RSS), or null/absent when it named nobody. */
+  imageCredit?: string | null;
 }
 
 interface MediaNode {
   $?: { url?: string };
+  // Media RSS lets <media:content> carry its own credit and copyright lines (xml2js gives arrays).
+  "media:credit"?: unknown[];
+  "media:copyright"?: unknown[];
 }
 interface CustomItem {
   mediaContent?: MediaNode[];
   mediaThumbnail?: MediaNode[];
+  /** <media:credit> / <media:copyright> directly under the item. */
+  mediaCredit?: unknown[];
+  mediaCopyright?: unknown[];
   /** <content:encoded>: often the full article, while <description> is a short teaser. */
   contentEncoded?: string;
 }
@@ -26,12 +35,15 @@ const parser = new Parser<Record<string, never>, CustomItem>({
     item: [
       ["media:content", "mediaContent", { keepArray: true }],
       ["media:thumbnail", "mediaThumbnail", { keepArray: true }],
+      ["media:credit", "mediaCredit", { keepArray: true }],
+      ["media:copyright", "mediaCopyright", { keepArray: true }],
       ["content:encoded", "contentEncoded"],
     ],
   },
 });
 
 const MAX_SNIPPET_CHARS = 3000;
+const MAX_CREDIT_CHARS = 120;
 
 /**
  * Real-world feeds are often not well-formed XML (bare "&" in URLs, control characters).
@@ -54,7 +66,12 @@ function httpUrl(value: string | undefined | null): string | null {
   }
 }
 
+/** The story's picture, with known feed quirks fixed (see normalizeImageUrl) so the stored URL actually loads. */
 function pickImage(item: Parser.Item & CustomItem): string | null {
+  return normalizeImageUrl(pickRawImage(item));
+}
+
+function pickRawImage(item: Parser.Item & CustomItem): string | null {
   const enclosure = item.enclosure;
   if (enclosure?.url && (enclosure.type?.startsWith("image/") || /\.(jpe?g|png|webp|gif)(\?|$)/i.test(enclosure.url))) {
     const url = httpUrl(enclosure.url);
@@ -66,6 +83,46 @@ function pickImage(item: Parser.Item & CustomItem): string | null {
   }
   const inline = /<img\b[^>]*?\bsrc=["']([^"']+)["']/i.exec(`${item.contentEncoded ?? ""} ${item.content ?? ""}`);
   return httpUrl(inline?.[1] ? decodeEntities(inline[1]) : null);
+}
+
+/** Text of an XML node that may or may not carry attributes: "Reuters", or { _: "Reuters", $: { role: "photographer" } }. */
+function nodeText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(nodeText).find((text) => text.trim()) ?? "";
+  if (value && typeof value === "object" && typeof (value as { _?: unknown })._ === "string") return (value as { _: string })._;
+  return "";
+}
+
+/** Feeds fill the credit field with placeholders as often as with names. */
+const NO_CREDIT = /^(n\/?a|none|null|unknown|anonymous|-+)$/i;
+
+/**
+ * A credit line ready to show ("Photo: " is added by the page, so a leading label is dropped here).
+ * Null when it is empty, a placeholder, or a bare link rather than a name.
+ */
+export function cleanImageCredit(raw: string): string | null {
+  const text = decodeEntities(htmlToText(raw))
+    .replace(/\s+/g, " ")
+    .replace(/^(?:photo|image|picture|credit|source)\s*:\s*/i, "")
+    .trim();
+  if (text.length < 2 || NO_CREDIT.test(text) || /^https?:\/\//i.test(text)) return null;
+  return truncate(text, MAX_CREDIT_CHARS - 1); // truncate() adds a "…", so this keeps the total within the cap
+}
+
+/** The credit the feed gave for the story's picture: on the item itself, or on its media node. */
+function pickImageCredit(item: Parser.Item & CustomItem): string | null {
+  const nodes = [...(item.mediaContent ?? []), ...(item.mediaThumbnail ?? [])];
+  const candidates = [
+    ...(item.mediaCredit ?? []),
+    ...nodes.flatMap((node) => node["media:credit"] ?? []),
+    ...(item.mediaCopyright ?? []),
+    ...nodes.flatMap((node) => node["media:copyright"] ?? []),
+  ];
+  for (const candidate of candidates) {
+    const credit = cleanImageCredit(nodeText(candidate));
+    if (credit) return credit;
+  }
+  return null;
 }
 
 /** The richest description the item offers, as plain text. */
@@ -83,12 +140,15 @@ export async function parseFeedXml(xml: string): Promise<FeedItem[]> {
     const url = httpUrl(item.link) ?? httpUrl(item.guid);
     if (!title || !url) continue;
     const published = Date.parse(item.isoDate ?? item.pubDate ?? "");
+    const imageUrl = pickImage(item);
     items.push({
       title,
       url,
       snippet: pickSnippet(item),
       publishedAt: Number.isNaN(published) ? null : new Date(published),
-      imageUrl: pickImage(item),
+      imageUrl,
+      // A credit belongs to a picture: with no picture there is nothing to credit.
+      imageCredit: imageUrl ? pickImageCredit(item) : null,
     });
   }
   return items;

@@ -18,6 +18,8 @@ export interface NewArticle {
   excerpt: string;
   body: string;
   imageUrl: string | null;
+  /** Who the feed credited for imageUrl; absent or null when it named nobody. */
+  imageCredit?: string | null;
   category: CategoryId;
   tags: string[];
   sourceId: string;

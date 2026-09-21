@@ -5,8 +5,12 @@
 export const DISCLAIMER =
   "G12 News is an automated aggregator. Stories are AI-summarized from the original outlets linked in each article.";
 
-/** `rel` for every outbound "Source: [Outlet] →" link on an article page. */
-export const SOURCE_LINK_REL = "nofollow noopener";
+/**
+ * `rel` for every outbound "Originally reported by [Outlet]" link on an article page: it passes no
+ * search ranking to the outlet (nofollow), and the new tab cannot reach back into ours (noopener)
+ * nor be told which page it came from (noreferrer).
+ */
+export const SOURCE_LINK_REL = "nofollow noopener noreferrer";
 
 /** Articles with urgencyScore >= this are flagged isBreaking. */
 export const BREAKING_URGENCY_THRESHOLD = 7;

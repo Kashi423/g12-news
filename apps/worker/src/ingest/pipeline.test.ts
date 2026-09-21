@@ -108,6 +108,20 @@ describe("runIngestion", () => {
     assert.equal(report.sources.reduce((n, s) => n + s.published, 0), 3);
   });
 
+  it("stores the image and its credit; a story with no picture keeps no credit", async () => {
+    const withCredit: FeedItem = { ...item("Flood waters recede in Sindh", "https://www.dawn.com/news/40"), imageUrl: "https://i.dawn.com/a.jpg", imageCredit: "AP Photo/Fareed Khan" };
+    const uncredited: FeedItem = { ...item("Wheat prices ease at the mandi", "https://www.dawn.com/news/41"), imageUrl: "https://i.dawn.com/b.jpg" };
+    const noPicture: FeedItem = { ...item("Cabinet meets on Thursday", "https://www.dawn.com/news/42"), imageCredit: "Orphan credit" };
+    const { store, run } = harness([dawn()], { [DAWN]: [withCredit, uncredited, noPicture] });
+
+    await run();
+
+    const byUrl = new Map(store.articles.map((a) => [a.sourceUrl, a]));
+    assert.equal(byUrl.get("https://www.dawn.com/news/40")!.imageCredit, "AP Photo/Fareed Khan");
+    assert.equal(byUrl.get("https://www.dawn.com/news/41")!.imageCredit, null);
+    assert.equal(byUrl.get("https://www.dawn.com/news/42")!.imageCredit, null, "a credit without a picture is dropped");
+  });
+
   it("skips URLs already stored (ignoring tracking params) and URLs repeated across feeds", async () => {
     const { store, run, calls } = harness([dawn(), geo()], {
       [DAWN]: [item("Already stored story", "https://www.dawn.com/news/9?utm_medium=x"), item("Shared story", "https://example.com/shared")],

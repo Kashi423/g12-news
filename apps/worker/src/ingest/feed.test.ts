@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, it } from "node:test";
 import { loadSettings } from "../settings";
-import { fetchFeed, parseFeedXml, sanitizeXml } from "./feed";
+import { cleanImageCredit, fetchFeed, parseFeedXml, sanitizeXml } from "./feed";
 
 const RSS = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/" xmlns:content="http://purl.org/rss/1.0/modules/content/">
@@ -38,6 +38,42 @@ describe("parseFeedXml", () => {
     assert.equal(second?.publishedAt, null);
     assert.match(second?.snippet ?? "", /^Long\s+body text that runs well past the teaser\.$/, "prefers the richer <content:encoded> over the short <description>");
     assert.equal(second?.imageUrl, "https://example.com/inline.png?a=1&b=2", "falls back to the first <img> in the content");
+  });
+
+  it("stores working image URLs: Geo's feed leaves out the updates/ folder, and http images become https", async () => {
+    const geo = `<?xml version="1.0"?><rss version="2.0"><channel><title>Geo</title>
+<item><title>Two officers martyred</title><link>https://www.geo.tv/latest/682915-two</link>
+<description><![CDATA[<img src="https://www.geo.tv/assets/uploads/2026-09-20/682915_091823_updates.jpg"/>]]><![CDATA[Security forces killed eight militants.]]></description></item>
+<item><title>Old-style link</title><link>https://example.com/c</link><enclosure url="http://example.com/c.jpg" type="image/jpeg"/></item>
+</channel></rss>`;
+    const [first, second] = await parseFeedXml(geo);
+    assert.equal(first?.imageUrl, "https://www.geo.tv/assets/uploads/updates/2026-09-20/682915_091823_updates.jpg");
+    assert.equal(second?.imageUrl, "https://example.com/c.jpg");
+  });
+
+  it("reads the image credit from Media RSS, wherever the feed puts it", async () => {
+    const xml = `<?xml version="1.0"?><rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>X</title>
+<item><title>Item-level credit</title><link>https://example.com/1</link>
+  <media:content url="https://example.com/1.jpg" medium="image"/><media:credit role="photographer" scheme="urn:ebu">AP Photo/Anjum Naveed</media:credit></item>
+<item><title>Credit inside the media node</title><link>https://example.com/2</link>
+  <media:content url="https://example.com/2.jpg" medium="image"><media:credit>Reuters</media:credit></media:content></item>
+<item><title>Only a copyright line</title><link>https://example.com/3</link>
+  <media:content url="https://example.com/3.jpg" medium="image"/><media:copyright>&#169; Getty Images</media:copyright></item>
+<item><title>Label and spacing are tidied</title><link>https://example.com/4</link>
+  <media:content url="https://example.com/4.jpg" medium="image"/><media:credit>  Photo:   Faisal   Mahmood / Reuters </media:credit></item>
+<item><title>No credit at all</title><link>https://example.com/5</link><media:content url="https://example.com/5.jpg" medium="image"/></item>
+<item><title>A credit but no picture</title><link>https://example.com/6</link><media:credit>Reuters</media:credit></item>
+</channel></rss>`;
+    const credits = (await parseFeedXml(xml)).map((item) => item.imageCredit);
+    assert.deepEqual(credits, ["AP Photo/Anjum Naveed", "Reuters", "© Getty Images", "Faisal Mahmood / Reuters", null, null]);
+  });
+
+  it("cleanImageCredit drops placeholders and bare links, and caps the length", () => {
+    for (const junk of ["", "  ", "N/A", "n/a", "None", "unknown", "-", "Photo:", "https://example.com/credit", "x"]) {
+      assert.equal(cleanImageCredit(junk), null, JSON.stringify(junk));
+    }
+    assert.equal(cleanImageCredit("Credit: <b>Rehan Khan</b> &amp; Getty"), "Rehan Khan & Getty");
+    assert.ok((cleanImageCredit("A".repeat(500))?.length ?? 999) <= 120);
   });
 
   it("sanitizeXml leaves valid entities alone", () => {

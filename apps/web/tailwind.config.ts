@@ -53,6 +53,15 @@ const config: Config = {
         muted: "#5B6470", // secondary text
         line: "#DDE1E7", // borders and dividers
       },
+      keyframes: {
+        // The ticker track holds its content twice; sliding by half a track is one seamless loop.
+        marquee: { from: { transform: "translateX(0)" }, to: { transform: "translateX(-50%)" } },
+        "breaking-in": { from: { opacity: "0", transform: "translateY(-8px)" }, to: { opacity: "1", transform: "translateY(0)" } },
+      },
+      animation: {
+        marquee: "marquee var(--marquee-duration, 40s) linear infinite",
+        "breaking-in": "breaking-in 450ms ease-out both",
+      },
       fontFamily: {
         // Headlines: serif display. Body/UI: sans. Variables are set by next/font in layout.tsx.
         serif: ["var(--font-serif)", "Georgia", "Cambria", "Times New Roman", "serif"],

@@ -46,6 +46,8 @@ model Source {
   ingestLogs IngestLog[]
 }
 
+// A Postgres trigger (migrations/*_breaking_notify) NOTIFYs the `breaking_articles` channel when
+// an article becomes or stops being a published breaking story; the web app streams that to browsers.
 model Article {
   id           String        @id @default(cuid())
   slug         String        @unique
@@ -54,6 +56,9 @@ model Article {
   // AI-rewritten summary. NOT the original outlet's full text.
   body         String
   imageUrl     String?
+  // Photographer or agency the feed credited for imageUrl ("Reuters", "AP Photo/Anjum Naveed").
+  // Null when the feed named nobody; the article page then shows no credit line.
+  imageCredit  String?
   category     Category
   tags         String[]      @default([])
   sourceId     String
@@ -63,6 +68,10 @@ model Article {
   // Link to the original article; unique so the same story is never ingested twice.
   sourceUrl    String        @unique
   publishedAt  DateTime
+  // Set when a published story is corrected or re-categorized afterwards; the article page shows it
+  // as "Updated". Null means never. Deliberately not @updatedAt: viewCount is bumped on every page
+  // view, and that must not make every story look freshly corrected.
+  correctedAt  DateTime?
   ingestedAt   DateTime      @default(now())
   isBreaking   Boolean       @default(false)
   // 0-10, clamped in application code.
