@@ -108,7 +108,7 @@ Run `npm run db:deploy` after pulling this change: it installs the trigger. If t
 
 **Filters live in the URL too:** `?tag=cricket` and `?sort=viewed` (they combine, and changing either starts again from page 1). The topic chips are the tags that recur (at least twice) in the category's newest 300 stories, top 10, cached for a minute. *Most viewed* orders by `viewCount`, then recency; the article page increments `viewCount` (see *Article pages*), so stories with no readers yet tie and fall back to recency.
 
-**SEO:** each page has its own title (`Sports News: Latest Headlines | G12 News`), meta description, canonical URL and Open Graph / Twitter tags (the site-wide image from `app/opengraph-image.jpg`). Filtered, re-sorted and later pages all name the plain `/category/<slug>` as canonical. Canonical links must be absolute, so **set `SITE_URL` in `.env`** in production; without it they say `http://localhost:3000`. A sitemap and structured data are a later step.
+**SEO:** each page has its own title (`Sports News: Latest Headlines | G12 News`), meta description, canonical URL and Open Graph / Twitter tags (the site-wide image from `app/opengraph-image.jpg`). Filtered, re-sorted and later pages all name the plain `/category/<slug>` as canonical. Canonical links must be absolute, so **set `SITE_URL` in `.env`** in production; without it they say `http://localhost:3000`. The sitemap and structured data are described under *SEO, sharing and performance*.
 
 **Rendering:** the pages read their query string, so they are rendered on each request (`loading.tsx` shows a skeleton at once). If the database errors the error page appears, never a false "no stories yet"; with no `DATABASE_URL` at all (local UI work) they show the empty state.
 
@@ -124,9 +124,99 @@ Run `npm run db:deploy` after pulling this change: it installs the trigger. If t
 - **Updated time.** `correctedAt` is set by whatever corrects or re-categorizes a story (the admin panel, a later step; nothing sets it yet, so no story shows "Updated" today). It is deliberately not Prisma's `@updatedAt`, which every view would bump. A change under a minute after publication is not shown.
 - **Tag chips** open the story's category with that tag as the topic filter (`/category/sports?tag=cricket`), the same view the category page's own topic chips give. A sitewide tag page could replace this later.
 - **404s.** An unknown, malformed, draft or rejected slug gets a real HTTP 404 with a friendly page (`app/article/[slug]/not-found.tsx`) and `noindex`, and a slug that cannot be one of ours (anything but lowercase letters, digits and single hyphens) is refused without a database read. The page has no `loading.tsx` on purpose: streaming would send a 200 before the story is looked up. A database error shows the error page, never a false 404. **Known limit:** a URL with a broken percent-escape (`/article/%E0%A4%A`) is answered `500` by `next start` before any of our code runs (`next dev` says 400). This affects every dynamic route in Next.js 16.3.5, not just this one.
-- **Share previews.** Open Graph and Twitter Card tags carry the story's title, excerpt and picture (`src/lib/article/metadata.ts`); a story with no picture is shared with the site's default image (`app/opengraph-image.jpg`). Share links are plain links to each network, with the absolute address built from `SITE_URL` (**set it in `.env`**; without it they say `http://localhost:3000`). Full structured data (JSON-LD) is a later step.
+- **Share previews.** Open Graph and Twitter Card tags carry the story's title, excerpt and picture (`src/lib/article/metadata.ts`); each story is shared with its own 1200 x 630 JPEG, `/article/<slug>/share.jpg`, and a story with no picture with the site's default image (`app/opengraph-image.jpg`). Share links are plain links to each network, with the absolute address built from `SITE_URL` (**set it in `.env`**; without it they say `http://localhost:3000`). Structured data and the share image are described under *SEO, sharing and performance*.
 - **Reading progress.** A thin bar under the ticker fills as the story is read (`components/article/reading-progress.tsx`); it needs JavaScript and is hidden from screen readers.
 - **Paragraphs.** The AI is asked for "plain paragraphs" but does not always break them, so `src/lib/article/paragraphs.ts` keeps its line breaks and cuts any paragraph over about 90 words into chunks of about 55 at sentence ends (not after "Dr.", "Rs.", "U.S." or an initial). The words are never changed.
+
+## Navigation, search and the static pages
+
+**Header.** It sticks under the breaking-news bar while the page scrolls, and turns *compact* (smaller logo, less padding, a shadow) once the reader is past the page's hero: the homepage's top story or an article's picture (anything marked `data-page-hero`), or after 160px of scrolling on pages that have none. Compacting never moves the page: the sticky element is a fixed-height, see-through slot, and only the bar inside it shrinks (`components/layout/sticky-header.tsx`; the rule, with a gap so it cannot flutter at the edge, is in `lib/layout/compact.ts`).
+
+- **Desktop (1024px and wider):** the eight-category nav is always visible, and the category the reader is in is underlined in red, both on its own page and on any story in it (an article tells the nav its category with `<ActiveCategory>`).
+- **Phones and tablets:** a hamburger button opens a drawer from the left with all nine categories plus About and Contact. It is the browser's native `<dialog>`, so focus stays inside it, Esc closes it, and it also closes on a tap outside, on any link, after navigating, and if the window grows to desktop width.
+- A "Skip to the stories" link appears on the first Tab press.
+
+**Search.** The search icon opens a full-screen overlay (no page load). As the reader types, the query goes to `/api/search` 300 ms after the last keystroke, and up to 20 stories appear with the same card used everywhere else. Enter (or "See all results") goes to `/search?q=...`, a normal server-rendered page for sharing or bookmarking (it is `noindex`).
+
+- **`GET /api/search?q=`** returns `{ query, count, results }`. It uses Postgres full-text search with the `simple` dictionary, so it works the same for English and Urdu: every word must match, each word may be the start of a longer one (so results appear while typing), a match in the title counts most, then tags, excerpt and body, and the order is relevance first, then newest. Only published stories are searched. A missing or too-short query is a `400`, a database failure is a `503` (never a fake "no results"), and results may be cached for 30 seconds on a CDN. Only letters and digits ever reach the database query, so nothing typed can act as a command (`lib/search/query.ts`, tested).
+- **Body text is searched too**, not only title, tags and excerpt, so a name mentioned only in the story still finds it. There is no stemming ("kill" does not find "killed").
+- **Scale.** The search vector is computed as each query runs, which is fine for thousands of stories. Add a GIN index on the same expression when the table gets much larger. There is no per-visitor rate limit in the app, so set one at your CDN or reverse proxy before a public launch.
+
+**Static pages.** `/about`, `/contact`, `/privacy` and `/disclaimer` are written to describe only what the site really does (an AI-automated aggregator, no cookies, no analytics, no ads, every story linked to its source).
+
+- **Set `CONTACT_EMAIL` in `.env`** and rebuild. The Contact page never makes up an address: until you set one it says the address has not been published yet.
+- The privacy policy is a plain-language description of today's behaviour, not legal advice. **Update it before you add analytics or ads** (it says so), and have it reviewed before you apply to an ad network.
+
+## SEO, sharing and performance
+
+**Set `SITE_URL` in `.env` before you deploy** (for example `https://g12news.com`). Every absolute address the site publishes (canonical links, the sitemap, `robots.txt`, structured data, share tags and share links) is built from it. Without it they all say `http://localhost:3000`, and a production process logs a warning saying so. Set it wherever the site is built *and* run.
+
+**Structured data** (JSON-LD; `src/lib/seo/json-ld.ts`, unit-tested):
+
+- **Every page** (from the root layout): an `Organization` (name, address, a 512 x 512 logo from `app/icon.jpg`, `publishingPrinciples` pointing at `/about`) and a `WebSite` with a `SearchAction` pointing at `/search?q={search_term_string}`. `sameAs` (social profiles) and `contactPoint` are included **only if you have set** the real `NEXT_PUBLIC_FACEBOOK_URL` / `NEXT_PUBLIC_X_URL` / `NEXT_PUBLIC_WHATSAPP_URL` and `CONTACT_EMAIL`; nothing is invented.
+- **Story pages:** a `NewsArticle` (headline cut to Google's ~110 characters, image, `datePublished`, `dateModified` = the correction time, or the publish time if never corrected, publisher with logo, section, keywords, and `isBasedOn` naming the outlet whose report it summarises) and a `BreadcrumbList` (Home > Category > Story). The **author is the Organization "G12 News", never a person**, because no person wrote it.
+- **Category pages:** a `BreadcrumbList` (Home > Category).
+- The JSON is made safe to put inside a `<script>` tag: `<` and the two line-separator characters are escaped, so a headline containing `</script>` cannot break out of the tag (tested).
+- After deploying, check a story and a category in Google's **Rich Results Test** and at validator.schema.org.
+
+**Sitemap and crawling.**
+
+- **`/sitemap.xml`** (`src/app/sitemap.ts`) is built from the database when it is requested, never a file to maintain: the homepage, all nine categories (last-modified = their newest story), the four static pages, and every **published** story (last-modified = its correction or publish time), newest first. A story is in it the moment it is published and drops out if it is unpublished; drafts and rejected stories never appear, nor `/search` or `/api`. It is deliberately *not* prerendered at build time (a build has neither the deployed `SITE_URL` nor necessarily a database). A shared cache may keep it for 5 minutes. One sitemap file holds 50,000 addresses; this one lists the newest 45,000 stories and logs a warning when there are more (then split it with Next.js `generateSitemaps` and a sitemap index).
+- **`/robots.txt`** allows everything and names the sitemap. The only thing it disallows is `/api/` (data endpoints, one of them a live stream). `/search` is *not* blocked: its pages say `noindex` themselves, and a crawler that is blocked cannot see that.
+- **Canonical URL** on every page: the root layout sets it to each page's own path; category pages (filtered, sorted, paged) name the plain `/category/<slug>`; search pages name `/search`. A 404 is a real 404 with `noindex`.
+
+**Sharing (WhatsApp, Facebook, X).** Every story's `og:image` is its own **`/article/<slug>/share.jpg`**: the outlet's picture re-made as exactly **1200 x 630**, always a **JPEG**, under 240 KB (`src/lib/seo/share-image.ts`, using `sharp`). The outlet's own picture is a poor share image (some are 600 KB PNGs, some WebP, sizes vary; WhatsApp shows previews reliably only up to roughly 300 KB). Only the hosts already approved for pictures (`apps/web/image-hosts.json`) are ever fetched, over https, with redirects followed only to another approved host and size, time and pixel limits, so this cannot be used to make the server fetch arbitrary addresses (tested: an unapproved address is never contacted). A story with no picture, or one that cannot be fetched, is shared with the site image (`/opengraph-image.jpg`); a failure is remembered for 5 minutes, not longer. The result is cached (`max-age=3600, s-maxage=86400, stale-while-revalidate=604800`).
+
+- The tags: `og:type=article`, `og:title`, `og:description`, `og:url` (= the canonical address), `og:image` with width, height, type and alt, `og:site_name`, `og:locale`, `article:published_time` (and `modified_time` after a correction), section and tags; and a Twitter `summary_large_image` card. The locale is `en_GB` (Facebook's list has no Pakistan English); change `src/lib/seo/locale.ts` if you prefer `en_US`.
+- What was checked here: every tag, and the image fetched with WhatsApp, Facebook and X user agents (HTTP 200, `image/jpeg`, 1200 x 630, all under 300 KB). What cannot be checked from `localhost` is the networks' own crawlers: after deploying, send a story link to yourself on WhatsApp, and paste one into the Facebook **Sharing Debugger** and the X / LinkedIn card validators (they keep a preview for days, so re-scrape after any change).
+
+**Performance.** Measured with Lighthouse's mobile preset (a simulated mid-range phone on slow 4G with a 4x slower CPU), against the local production build on a development PC that was also running the worker and database, so treat the numbers as a guide and re-measure the deployed site (PageSpeed Insights):
+
+| Page | Performance | Total blocking time | Layout shift | Notes |
+|---|---|---|---|---|
+| Homepage | 88 to 92 (was 66) | about 225 ms (was 1131 ms) | 0.000 | LCP about 2.7 to 3.2 s in the simulation; about 1.8 s on a throttled real browser (slow 4G, 4x slower CPU) |
+| Category | 80 to 86 | about 275 to 400 ms | 0.000 | |
+| Story | 89 to 91 | about 90 to 150 ms | 0.000 | |
+| About | 93 | about 165 ms | 0.000 | |
+
+Accessibility, Best Practices and SEO are 100 on these pages (a search-results page scores lower on SEO only because it is deliberately `noindex`). Scores move by several points from run to run.
+
+- **What made the biggest difference:** the header and the reading-progress bar used to ask the browser for an element's position while the page was still loading, which forced a layout in the middle of hydration and delayed the first paint by about 1.8 s. They no longer measure during load (the header measures on scroll and resize, and once after load when the browser itself has scrolled the page, for a reload, the Back button or a `#link`). That alone took the homepage from about 58 to about 88.
+- **Pictures:** story pictures are plain `<img>` tags with next/image's own attributes (`getImageProps`: resized, WebP/AVIF, `srcset`), not a hydrated component each, which was the largest JavaScript cost of a page with dozens of stories. One small script (`components/layout/page-enhancements.tsx`) serves them all: it swaps a failed picture for the logo card and keeps every "x minutes ago" current. The top picture of a page (the homepage's lead story, an article's picture, the first card of a category or search page) is `loading="eager"` with `fetchpriority="high"`, which Next.js 16 recommends over `preload`; every other picture is lazy-loaded. Two quality levels (60 for cards, 75 for the top picture) and finer width steps keep them small; optimized copies are kept for a day.
+- **Fonts:** `next/font/google` already downloads the fonts at build time and serves them from this site (the browser never contacts Google) and only the Latin subset is loaded up front; the other alphabets are fetched only if a page uses those characters. Merriweather's Latin file is about 96 KB because it is a variable font. Replacing it with a single static weight would roughly halve that, but it changes the look, so it was left as it is.
+- **Left as they are:** the "unused JavaScript" and "legacy JavaScript" notes in Lighthouse (about 25 KB and 13 KB) come from Next.js's own framework chunk, and the remaining cost is React hydrating a page of 26 stories. Fewer stories per section would reduce it.
+
+**Caching headers** (they matter once a CDN or reverse proxy is in front; without one they are harmless):
+
+| Path | `Cache-Control` |
+|---|---|
+| `/` | `s-maxage=60, stale-while-revalidate` (ISR: rebuilt at most once a minute) |
+| `/category/*` | `public, max-age=0, s-maxage=60, stale-while-revalidate=300` |
+| `/article/*`, `/search` | `private, no-cache`: never kept by a shared cache, because every story visit is a counted view. It is `no-cache`, not `no-store`, so the browser's Back button can restore the page instantly |
+| `/api/breaking` | `s-maxage=10, stale-while-revalidate=20` |
+| `/api/search` | `s-maxage=30, stale-while-revalidate=60` (a 400 or 503 is `no-store`) |
+| `/api/breaking-stream` | a live stream, never cached |
+| `/sitemap.xml`, `/robots.txt` | `s-maxage=300`, `s-maxage=3600` |
+| `/article/*/share.jpg` | `max-age=3600, s-maxage=86400, stale-while-revalidate=604800` |
+| `/icon.jpg`, `/opengraph-image.jpg`, `/brand/*` | one day + revalidate; the content-hashed logo file one year (`immutable`) |
+| `/_next/static/*` | one year, `immutable` (Next.js) |
+| `/_next/image` | at least one day |
+
+After a deploy, the first request for the homepage (and static pages) is answered from the copy made at build time and starts a fresh one, as ISR always does. Open `/` once (or build with the database reachable) before you submit anything to a search engine.
+
+**Search Console checklist** (after the site is live; the deployment step comes later):
+
+1. Set `SITE_URL` and deploy.
+2. Add the site in **Google Search Console** and verify it: either with DNS, or put the meta tag's `content` value in `GOOGLE_SITE_VERIFICATION` in `.env` and redeploy. Do the same in **Bing Webmaster Tools** with `BING_SITE_VERIFICATION`.
+3. Submit `https://<your site>/sitemap.xml` in both.
+4. Use *URL Inspection* on a story and a category, and the Rich Results Test on a story.
+5. Watch *Pages* (indexing) over the following weeks. Expect some "Crawled, currently not indexed" and duplicate warnings: these are AI summaries of other outlets' reporting, and Google decides for itself whether to index them.
+
+**Honest notes.**
+
+- **Google News:** its publisher inclusion asks for original reporting and clear authorship. A site that summarises other outlets' reports with AI is unlikely to qualify, so none of this is built around it (there is no news sitemap either). The sitemap and structured data are for ordinary Google and Bing search.
+- The `SearchAction` is valid and harmless, but Google announced in late 2024 that it would stop showing the sitelinks search box, so do not expect one.
+- Structured data helps search engines understand a page; it does not make one rank. Nothing on the site claims more than is true (the author is the organisation, the source is named and linked).
 
 ## Free AI with Groq
 

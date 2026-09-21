@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { articlePath, breakingCutoff, BREAKING_MAX_AGE_MS, isCurrentlyBreaking } from "./breaking";
+import {
+  articlePath,
+  breakingCutoff,
+  breakingFallbackCutoff,
+  BREAKING_FALLBACK_MAX_AGE_MS,
+  BREAKING_MAX_AGE_MS,
+  isCurrentlyBreaking,
+} from "./breaking";
 
 const NOW = new Date("2026-09-21T12:00:00Z");
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000);
@@ -29,6 +36,13 @@ describe("isCurrentlyBreaking", () => {
   it("computes the cutoff from a Date or a timestamp", () => {
     assert.equal(breakingCutoff(NOW).getTime(), NOW.getTime() - BREAKING_MAX_AGE_MS);
     assert.equal(breakingCutoff(NOW.getTime()).getTime(), NOW.getTime() - BREAKING_MAX_AGE_MS);
+  });
+});
+
+describe("breakingFallbackCutoff", () => {
+  it("computes the 3 hour top-up cutoff from a Date or a timestamp", () => {
+    assert.equal(breakingFallbackCutoff(NOW).getTime(), NOW.getTime() - BREAKING_FALLBACK_MAX_AGE_MS);
+    assert.equal(breakingFallbackCutoff(NOW.getTime()).getTime(), NOW.getTime() - BREAKING_FALLBACK_MAX_AGE_MS);
   });
 });
 

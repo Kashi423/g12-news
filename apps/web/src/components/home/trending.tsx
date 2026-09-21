@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { articlePath } from "@g12/config";
 import { getTrending } from "@/lib/home/queries";
-import { RelativeTime } from "../breaking/relative-time";
+import { TimeAgo } from "./time-ago";
 
 /** "Trending Now": the five most-viewed stories from the last 24 hours, numbered. */
 export async function Trending() {
@@ -31,7 +31,7 @@ export async function Trending() {
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-muted">
                   <span className="truncate font-semibold uppercase tracking-wide text-ink/80">{story.sourceName}</span>
                   <span aria-hidden="true">&middot;</span>
-                  <RelativeTime iso={story.publishedAt} className="shrink-0" />
+                  <TimeAgo iso={story.publishedAt} className="shrink-0" />
                 </p>
               </div>
             </Link>

@@ -27,7 +27,9 @@ export function ReadingProgress({ targetId }: { targetId: string }) {
       if (frame === 0) frame = requestAnimationFrame(paint);
     };
 
-    paint();
+    // Measured in the next animation frame, not right now: this runs while React is still hydrating the page,
+    // and asking for a position then would force a layout of a page that is still changing.
+    schedule();
     window.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule);
     return () => {
@@ -38,7 +40,7 @@ export function ReadingProgress({ targetId }: { targetId: string }) {
   }, [targetId]);
 
   return (
-    <div aria-hidden="true" data-testid="reading-progress" className="pointer-events-none fixed inset-x-0 top-9 z-40 h-[3px]">
+    <div aria-hidden="true" data-testid="reading-progress" className="pointer-events-none fixed inset-x-0 top-9 z-[45] h-[3px]">
       <div ref={fill} className="h-full origin-left bg-brand" style={{ transform: "scaleX(0)" }} />
     </div>
   );

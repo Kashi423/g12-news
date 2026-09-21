@@ -5,8 +5,17 @@ export class MemoryStore implements IngestStore {
   readonly articles: (NewArticle & { id: string })[] = [];
   readonly logs: LogEntry[] = [];
   readonly touched = new Map<string, { lastFetchedAt: Date; lastError: string | null }>();
+  /** The "Require review before publish" switch; tests flip it, also while a run is in progress. */
+  reviewRequired = false;
+  /** How many times the switch was read (once per accepted story). */
+  reviewReads = 0;
 
   constructor(public sources: SourceRecord[] = []) {}
+
+  async requireReview(): Promise<boolean> {
+    this.reviewReads++;
+    return this.reviewRequired;
+  }
 
   async listActiveSources(): Promise<SourceRecord[]> {
     return this.sources.map((s) => ({ ...s, lastFetchedAt: this.touched.get(s.id)?.lastFetchedAt ?? s.lastFetchedAt }));
@@ -19,7 +28,7 @@ export class MemoryStore implements IngestStore {
 
   async recentPublished(limit: number): Promise<{ id: string; title: string }[]> {
     return this.articles
-      .filter((a) => a.status === "PUBLISHED")
+      .filter((a) => a.status === "PUBLISHED" || a.status === "PENDING_REVIEW")
       .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())
       .slice(0, limit)
       .map((a) => ({ id: a.id, title: a.title }));

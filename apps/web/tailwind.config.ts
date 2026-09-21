@@ -57,10 +57,15 @@ const config: Config = {
         // The ticker track holds its content twice; sliding by half a track is one seamless loop.
         marquee: { from: { transform: "translateX(0)" }, to: { transform: "translateX(-50%)" } },
         "breaking-in": { from: { opacity: "0", transform: "translateY(-8px)" }, to: { opacity: "1", transform: "translateY(0)" } },
+        // The mobile menu slides in from the left; the search overlay fades in.
+        "drawer-in": { from: { transform: "translateX(-100%)" }, to: { transform: "translateX(0)" } },
+        "fade-in": { from: { opacity: "0" }, to: { opacity: "1" } },
       },
       animation: {
         marquee: "marquee var(--marquee-duration, 40s) linear infinite",
         "breaking-in": "breaking-in 450ms ease-out both",
+        "drawer-in": "drawer-in 220ms ease-out both",
+        "fade-in": "fade-in 160ms ease-out both",
       },
       fontFamily: {
         // Headlines: serif display. Body/UI: sans. Variables are set by next/font in layout.tsx.

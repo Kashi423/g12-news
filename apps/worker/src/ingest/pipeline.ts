@@ -20,6 +20,8 @@ export interface RunOptions {
   maxItemsPerRun?: number;
   /** Only sources whose name or URL contains this text. */
   sourceFilter?: string;
+  /** Only these sources, by id (the admin dashboard's "Fetch now" for one source). */
+  sourceIds?: string[];
 }
 
 export interface RunDeps {
@@ -39,7 +41,10 @@ export interface SourceReport {
   /** Fetch/parse failure, if any. */
   error: string | null;
   found: number;
+  /** Accepted stories: live now, or (`queued`) held for review. */
   published: number;
+  /** Of `published`, how many were saved as PENDING_REVIEW because the review switch was on. */
+  queued: number;
   /** Rejected by the AI (ad, press release, not relevant, ...); stored as REJECTED. */
   rejected: number;
   /** Same story as an earlier article; stored as REJECTED. */
@@ -105,6 +110,7 @@ function blankReport(source: SourceRecord): SourceReport {
     error: null,
     found: 0,
     published: 0,
+    queued: 0,
     rejected: 0,
     duplicates: 0,
     alreadyIngested: 0,
@@ -135,7 +141,8 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
   let aiDown: string | null = null;
 
   const needle = options.sourceFilter?.toLowerCase();
-  const sources = (await store.listActiveSources()).filter((s) => !needle || `${s.name} ${s.rssUrl}`.toLowerCase().includes(needle));
+  const ids = options.sourceIds ? new Set(options.sourceIds) : null;
+  const sources = (await store.listActiveSources()).filter((s) => (!needle || `${s.name} ${s.rssUrl}`.toLowerCase().includes(needle)) && (!ids || ids.has(s.id)));
   const reports = sources.map(blankReport);
   const reportOf = new Map(sources.map((s, i) => [s.id, reports[i]!]));
 
@@ -273,6 +280,12 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
         urgencyScore: urgency,
         status: "PUBLISHED",
       };
+      // The review switch is read HERE, per story, straight before the save (never once per run or at
+      // start-up), so flipping it applies to the very next story. It also applies to breaking stories:
+      // the flag is kept, but a queued story is not live, so nothing is announced until it is approved.
+      // If the read fails the story is not saved and is retried on the next run (fail closed).
+      const review = await store.requireReview();
+      article.status = review ? "PENDING_REVIEW" : "PUBLISHED";
       const result = await store.createArticle(article);
       if (!result.ok) {
         if (result.conflict === "url") return void c.report.alreadyIngested++;
@@ -281,10 +294,11 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
         if (!retry.ok) return void c.report.alreadyIngested++;
       }
       c.report.published++;
+      if (review) c.report.queued++;
       // Later waves compare against both our headline and the original one other outlets may echo.
       published.add(article.title, { title: article.title });
       published.add(c.title, { title: article.title });
-      log(`  + PUBLISHED  [${article.category}] urgency ${urgency}${article.isBreaking ? " BREAKING" : ""}  "${article.title}"  <- ${c.outlet}`);
+      log(`  + ${review ? "QUEUED   " : "PUBLISHED"}  [${article.category}] urgency ${urgency}${article.isBreaking ? " BREAKING" : ""}  "${article.title}"  <- ${c.outlet}${review ? "  (waiting for review)" : ""}`);
     };
 
     let wave = 0;

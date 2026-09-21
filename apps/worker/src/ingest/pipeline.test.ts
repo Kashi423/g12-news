@@ -377,3 +377,92 @@ describe("runIngestion", () => {
     assert.deepEqual(store.articles.map((a) => a.publishedAt.toISOString()), [NOW.toISOString(), NOW.toISOString()]);
   });
 });
+
+describe("require review before publish", () => {
+  const feeds = () => ({
+    [DAWN]: [item("Council approves new budget", "https://www.dawn.com/news/1", 20), item("Blast kills three near market", "https://www.dawn.com/news/2", 5), item("Rain forecast for Punjab this week", "https://www.dawn.com/news/3", 12)],
+  });
+  const urgent = async (input: AnalyzeInput) => publish(input, { urgencyScore: /blast/i.test(input.title) ? 9 : 3 });
+
+  it("is off by default: accepted stories go live at once", async () => {
+    const { store, run } = harness([dawn()], feeds(), urgent);
+    const report = await run();
+    assert.deepEqual([...new Set(store.articles.map((a) => a.status))], ["PUBLISHED"]);
+    assert.equal(report.sources[0]!.queued, 0);
+  });
+
+  it("on: every accepted story waits as PENDING_REVIEW, even a breaking one, and is counted as accepted in the log", async () => {
+    const { store, run } = harness([dawn()], feeds(), urgent);
+    store.reviewRequired = true;
+
+    const report = await run();
+
+    assert.equal(store.articles.length, 3);
+    assert.deepEqual([...new Set(store.articles.map((a) => a.status))], ["PENDING_REVIEW"]);
+    const blast = store.articles.find((a) => /blast/i.test(a.title))!;
+    assert.equal(blast.status, "PENDING_REVIEW", "a high-urgency story also waits for approval");
+    assert.equal(blast.isBreaking, true, "the flag is kept, so it goes out as breaking if it is still fresh when approved");
+    assert.equal(report.sources[0]!.published, 3);
+    assert.equal(report.sources[0]!.queued, 3);
+    assert.equal(store.logs[0]!.itemsPublished, 3);
+  });
+
+  it("is read for every story just before it is saved, so flipping it mid-run applies to the very next story", async () => {
+    let seen = 0;
+    const flipping = harness([dawn()], feeds(), async (input) => {
+      if (++seen === 2) flipping.store.reviewRequired = true; // the owner turns review on while the run is in progress
+      return urgent(input);
+    }, { aiConcurrency: 1 });
+    assert.equal(flipping.store.reviewReads, 0, "nothing is read (or cached) before a story is saved");
+
+    await flipping.run();
+
+    // Items are analyzed earliest report first: budget, rain, blast. The switch flips during the second AI call.
+    assert.deepEqual(flipping.store.articles.map((a) => a.status), ["PUBLISHED", "PENDING_REVIEW", "PENDING_REVIEW"]);
+    assert.equal(flipping.store.reviewReads, 3, "one fresh read per accepted story, not one per run");
+  });
+
+  it("counts stories waiting for review when looking for duplicates, so two outlets' copies are not both queued", async () => {
+    const { store, run, calls } = harness([dawn(), geo()], {
+      [DAWN]: [item("Shehbaz Sharif meets Saudi crown prince in Riyadh", "https://www.dawn.com/news/10", 30)],
+      [GEO]: [item("PM Shehbaz Sharif meets Saudi crown prince in Riyadh", "https://www.geo.tv/latest/10", 12)],
+    });
+    store.reviewRequired = true;
+
+    await run();
+
+    assert.equal(calls.length, 1, "the second copy is dropped without an AI call");
+    assert.deepEqual(store.articles.map((a) => [a.sourceName, a.status]), [["Dawn", "PENDING_REVIEW"], ["Geo News", "REJECTED"]]);
+  });
+
+  it("does not re-ingest a story that was rejected in review (its URL stays in the table)", async () => {
+    const { store, run, calls } = harness([dawn()], { [DAWN]: [item("Council approves new budget", "https://www.dawn.com/news/1")] });
+    store.reviewRequired = true;
+    await run({ force: true });
+    store.articles[0]!.status = "REJECTED"; // what the admin's Reject does
+    await run({ force: true });
+    assert.equal(calls.length, 1);
+    assert.equal(store.articles.length, 1);
+  });
+});
+
+describe("runIngestion for chosen sources", () => {
+  it("fetches only the sources named by id, ignoring the minimum fetch interval when forced", async () => {
+    const recent = new Date(NOW.getTime() - 60_000);
+    const { run, fetched } = harness([source("s-dawn", "Dawn — Pakistan", DAWN, "PAKISTAN", recent), geo()], {
+      [DAWN]: [item("Council approves new budget", "https://www.dawn.com/news/1")],
+      [GEO]: [item("Rain forecast for Punjab", "https://www.geo.tv/latest/1")],
+    });
+    const report = await run({ force: true, sourceIds: ["s-dawn"] });
+    assert.deepEqual(fetched, [DAWN]);
+    assert.deepEqual(report.sources.map((s) => s.sourceId), ["s-dawn"]);
+    assert.equal(report.sources[0]!.published, 1);
+  });
+
+  it("runs nothing for an id that is not an active source", async () => {
+    const { run, fetched } = harness([dawn()], { [DAWN]: [item("Council approves new budget", "https://www.dawn.com/news/1")] });
+    const report = await run({ sourceIds: ["nope"] });
+    assert.deepEqual(fetched, []);
+    assert.deepEqual(report.sources, []);
+  });
+});

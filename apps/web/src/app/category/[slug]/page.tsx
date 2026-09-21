@@ -8,9 +8,12 @@ import { FilterBar } from "@/components/category/filter-bar";
 import { Pagination } from "@/components/category/pagination";
 import { CategorySidebar } from "@/components/category/sidebar";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
+import { JsonLd } from "@/components/seo/json-ld";
 import { categoryMetadata } from "@/lib/category/metadata";
 import { getCategoryPage, getCategoryTags } from "@/lib/category/queries";
 import { categoryHref, parseCategoryQuery, type RawSearchParams } from "@/lib/category/query";
+import { breadcrumbSchema, categoryBreadcrumbs } from "@/lib/seo/json-ld";
+import { getSiteInfo } from "@/lib/seo/site";
 
 // This page reads ?tag= / ?sort= / ?after= / ?before=, so Next.js renders it for each request. An unknown
 // slug is turned into a 404 by layout.tsx, before rendering starts.
@@ -42,6 +45,8 @@ export default async function CategoryPage({ params, searchParams }: Props) {
 
   return (
     <div className="container pb-12 pt-5 lg:pt-6">
+      {/* Structured data for search engines: the trail Home > Category (the same for every filtered view of it). */}
+      <JsonLd data={breadcrumbSchema(categoryBreadcrumbs(category.id, getSiteInfo()))} />
       <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: category.name }]} />
       <CategoryHeader category={category} className="mt-4" />
 

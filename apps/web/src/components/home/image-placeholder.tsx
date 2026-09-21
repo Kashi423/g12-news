@@ -1,14 +1,19 @@
-import Image from "next/image";
-import { LOGO_PLACEHOLDER } from "@/lib/brand";
-
 /**
- * Stand-in for a story with no image (the RSS feed had none, or it failed to load): the G12 News
- * logo on its own backdrop. Fills its (relatively positioned) parent.
+ * Stand-in for a story with no picture: the G12 News logo on its own backdrop (a card the size of its
+ * relatively positioned parent). It is a background image, not an <img>, so it costs nothing to render:
+ * with `hidden` (the default beside a real picture) the browser does not even download the file, and
+ * PageEnhancements un-hides it only if that picture fails to load.
+ * The file is public/brand/g12-news-placeholder.jpg (made by `npm run brand:build`); if you rename it,
+ * change the class below to match.
  */
-export function ImagePlaceholder() {
+export function ImagePlaceholder({ hidden = false }: { hidden?: boolean }) {
   return (
-    <div aria-hidden="true" data-testid="image-placeholder" className="absolute inset-0 overflow-hidden bg-[#eeeeee]">
-      <Image src={LOGO_PLACEHOLDER.src} alt="" fill unoptimized sizes="100vw" className="object-cover" />
-    </div>
+    <span
+      aria-hidden="true"
+      hidden={hidden}
+      data-fallback-box=""
+      data-testid="image-placeholder"
+      className="absolute inset-0 bg-[#eeeeee] bg-cover bg-center bg-[url('/brand/g12-news-placeholder.jpg')]"
+    />
   );
 }

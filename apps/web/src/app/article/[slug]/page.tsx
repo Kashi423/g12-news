@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { after } from "next/server";
 import { articlePath, categoryPath, CATEGORY_BY_ID, DISCLAIMER } from "@g12/config";
+import { ActiveCategory } from "@/components/layout/active-category";
 import { ArticleBody } from "@/components/article/article-body";
 import { ArticleHeader } from "@/components/article/article-header";
 import { ArticleHero } from "@/components/article/article-hero";
@@ -12,12 +13,15 @@ import { ShareButtons } from "@/components/article/share-buttons";
 import { SourceBox } from "@/components/article/source-box";
 import { TagChips } from "@/components/article/tag-chips";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
+import { JsonLd } from "@/components/seo/json-ld";
 import { truncateLabel } from "@/lib/article/format";
 import { articleMetadata } from "@/lib/article/metadata";
 import { getArticle, getRelatedArticles, recordView } from "@/lib/article/queries";
 import { shareTargets } from "@/lib/article/share";
 import { shouldCountView } from "@/lib/article/traffic";
 import { isBreakingNow } from "@/lib/home/flags";
+import { articleBreadcrumbs, breadcrumbSchema, newsArticleSchema } from "@/lib/seo/json-ld";
+import { getSiteInfo } from "@/lib/seo/site";
 import { siteUrl } from "@/lib/site-url";
 
 // Every request renders this page fresh: it counts the view, and a story's breaking badge and
@@ -52,6 +56,11 @@ export default async function ArticlePage({ params }: Props) {
   return (
     <>
       <ReadingProgress targetId="article-content" />
+      {/* Highlights the story's category in the navigation while the story is open. */}
+      <ActiveCategory slug={category.slug} />
+      {/* Structured data for search engines: the story, and its trail Home > Category > Story. */}
+      <JsonLd data={newsArticleSchema(article, getSiteInfo())} />
+      <JsonLd data={breadcrumbSchema(articleBreadcrumbs(article, getSiteInfo()))} />
       <div className="container pb-12 pt-5 lg:pt-6">
         <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: category.name, href: categoryPath(category.slug) }, { label: truncateLabel(article.title) }]} />
 

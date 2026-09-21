@@ -5,7 +5,7 @@ import { getFeaturedPool } from "@/lib/home/queries";
 import { pickFeatured } from "@/lib/home/ranking";
 import type { HomeArticle } from "@/lib/home/types";
 import { BreakingBadge } from "../breaking/breaking-badge";
-import { RelativeTime } from "../breaking/relative-time";
+import { TimeAgo } from "./time-ago";
 import { ArticleImage } from "./article-image";
 import { ImagePlaceholder } from "./image-placeholder";
 
@@ -18,11 +18,11 @@ export async function Hero() {
   if (!hero) return <HomeEmpty />;
 
   return (
-    <section aria-label="Top stories" data-testid="hero" className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
+    <section aria-label="Top stories" data-testid="hero" data-page-hero className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
       <article className="group lg:col-span-2">
         <Link href={articlePath(hero.slug)} className="block focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
           <div className="relative aspect-[16/9] w-full overflow-hidden bg-surface">
-            <ArticleImage src={hero.imageUrl} sizes="(min-width: 1024px) 66vw, 100vw" eager />
+            <ArticleImage src={hero.imageUrl} sizes="(min-width: 1024px) 66vw, 100vw" eager quality={75} />
             {isBreakingNow(hero) && <BreakingBadge pulse className="absolute left-3 top-3 shadow-sm" />}
           </div>
           <div className="mt-3 lg:mt-4">
@@ -32,14 +32,16 @@ export async function Hero() {
             <p className="mt-3 flex items-center gap-1.5 text-xs text-muted">
               <span className="font-semibold uppercase tracking-wide text-ink/80">{hero.sourceName}</span>
               <span aria-hidden="true">&middot;</span>
-              <RelativeTime iso={hero.publishedAt} />
+              <TimeAgo iso={hero.publishedAt} />
             </p>
           </div>
         </Link>
       </article>
 
       {secondary.length > 0 && (
-        <ul className="divide-y divide-line lg:grid lg:grid-rows-3 lg:divide-y lg:border-l lg:border-line lg:pl-8">
+        // lg:grid-cols-1 makes the list's one column a fixed minmax(0,1fr) track. Left implicit ("auto"), it grew to fit the
+        // longest unbreakable word in a headline and pushed the page wider than the window at ~1024px.
+        <ul className="divide-y divide-line lg:grid lg:grid-cols-1 lg:grid-rows-3 lg:divide-y lg:border-l lg:border-line lg:pl-8">
           {secondary.map((story) => (
             <li key={story.id} className="py-4 first:pt-0 last:pb-0 lg:flex lg:items-center lg:py-0">
               <SideStory story={story} />
@@ -59,11 +61,11 @@ function SideStory({ story }: { story: HomeArticle }) {
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-[11px] font-bold uppercase tracking-wide text-crimson">{CATEGORY_BY_ID[story.category].name}</p>
-        <h3 className="mt-0.5 line-clamp-3 font-serif text-base font-bold leading-snug group-hover:underline">{story.title}</h3>
+        <h3 className="mt-0.5 line-clamp-3 font-serif text-base font-bold leading-snug [overflow-wrap:anywhere] group-hover:underline">{story.title}</h3>
         <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted">
           <span className="truncate font-semibold uppercase tracking-wide text-ink/80">{story.sourceName}</span>
           <span aria-hidden="true">&middot;</span>
-          <RelativeTime iso={story.publishedAt} className="shrink-0" />
+          <TimeAgo iso={story.publishedAt} className="shrink-0" />
         </p>
       </div>
     </Link>

@@ -11,7 +11,7 @@ export function SiteFooter() {
     <footer className="mt-auto bg-brand-950 text-white" data-testid="site-footer">
       <div className="container grid gap-8 py-10 sm:grid-cols-2 lg:grid-cols-4 lg:gap-10">
         <div className="sm:col-span-2 lg:col-span-1">
-          <Link href="/" className="inline-block overflow-hidden rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" aria-label={`${SITE.name} — home`}>
+          <Link href="/" prefetch={false} className="inline-block overflow-hidden rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" aria-label={`${SITE.name} — home`}>
             <Image src={LOGO.src} alt="" width={LOGO.width} height={LOGO.height} sizes="160px" className="h-auto w-40" />
           </Link>
           <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.14em] text-white/60">{SITE.tagline}</p>
@@ -44,6 +44,11 @@ export function SiteFooter() {
                 </Link>
               </li>
             ))}
+            <li>
+              <Link href="/search" className={linkClass}>
+                Search
+              </Link>
+            </li>
           </ul>
         </nav>
       </div>

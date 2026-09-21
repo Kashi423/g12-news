@@ -8,6 +8,18 @@
     color-scheme: only light;
   }
 
+  html {
+    /* Room for the sticky breaking bar and header, so a link to a #section or a focused field is never hidden behind them. */
+    scroll-padding-top: 7rem;
+    /* Keep the scrollbar's space reserved, so opening the menu or search (which locks page scrolling) does not shift the page sideways. */
+    scrollbar-gutter: stable;
+  }
+
+  /* While the menu drawer or the search overlay is open, the page behind it does not scroll. */
+  html:has(dialog[open]) {
+    overflow: hidden;
+  }
+
   body {
     @apply bg-canvas font-sans text-ink antialiased;
   }

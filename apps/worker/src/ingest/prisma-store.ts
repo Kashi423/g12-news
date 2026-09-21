@@ -1,5 +1,5 @@
 import { Prisma, prisma } from "@g12/db";
-import type { CategoryId } from "@g12/config";
+import { parseSwitch, SETTING_REQUIRE_REVIEW, type CategoryId } from "@g12/config";
 import type { IngestStore } from "./store";
 
 function isUniqueViolation(error: unknown): boolean {
@@ -25,7 +25,7 @@ export function createPrismaStore(): IngestStore {
 
     async recentPublished(limit) {
       return prisma.article.findMany({
-        where: { status: "PUBLISHED" },
+        where: { status: { in: ["PUBLISHED", "PENDING_REVIEW"] } },
         orderBy: { publishedAt: "desc" },
         take: limit,
         select: { id: true, title: true },
@@ -46,8 +46,14 @@ export function createPrismaStore(): IngestStore {
       }
     },
 
+    async requireReview() {
+      // A fresh read every call: this is what makes flipping the switch take effect without a restart.
+      const row = await prisma.setting.findUnique({ where: { key: SETTING_REQUIRE_REVIEW }, select: { value: true } });
+      return parseSwitch(row?.value);
+    },
+
     async touchSource(id, update) {
-      await prisma.source.update({ where: { id }, data: update });
+      await prisma.source.update({ where: { id }, data: { ...update, ...(update.lastError === null ? { lastSuccessAt: update.lastFetchedAt } : {}) } });
     },
 
     async writeLog(entry) {

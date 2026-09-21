@@ -2,18 +2,24 @@ import Image from "next/image";
 import Link from "next/link";
 import { SITE } from "@g12/config";
 import { LOGO } from "@/lib/brand";
+import { MobileMenu } from "./layout/mobile-menu";
 import { PrimaryNav } from "./layout/primary-nav";
 import { SearchOverlay } from "./layout/search-overlay";
+import { StickyHeader } from "./layout/sticky-header";
 
 /**
- * Main header: the G12 News logo, the category navigation and the search button.
- * Phones: logo and search on the first row, the swipeable nav on a second row. Desktop: one row.
+ * Main header, stuck under the breaking-news bar while the page scrolls and compact (smaller logo, less
+ * padding) once the reader is past the hero. See StickyHeader for how compacting avoids moving the page.
+ *
+ *   Phones and tablets:  [menu button]   [logo]   [search]      (the menu slides in from the left)
+ *   Desktop:             [logo]   [category navigation]   [search]
  */
 export function SiteHeader() {
   return (
-    <header className="border-b border-line bg-canvas">
-      <div className="container flex flex-wrap items-center justify-between gap-x-6 lg:flex-nowrap">
-        <Link href="/" aria-label={`${SITE.name} — home`} className="order-1 flex items-center gap-3 py-2 lg:py-2.5">
+    <StickyHeader>
+      <div className="container flex h-full items-center justify-between gap-3 lg:gap-6">
+        <MobileMenu />
+        <Link href="/" prefetch={false} aria-label={`${SITE.name} — home`} className="flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
           <Image
             src={LOGO.src}
             alt=""
@@ -22,15 +28,15 @@ export function SiteHeader() {
             sizes="(min-width: 1024px) 92px, 72px"
             loading="eager"
             fetchPriority="high"
-            className="h-14 w-auto lg:h-[4.5rem]"
+            className="h-14 w-auto transition-[height] duration-200 ease-out group-data-[compact=true]:h-10 motion-reduce:transition-none lg:h-[4.5rem] lg:group-data-[compact=true]:h-11"
           />
-          <span className="border-l border-line pl-3 text-[10px] font-semibold uppercase leading-snug tracking-[0.14em] text-muted sm:text-[11px]">{SITE.tagline}</span>
+          <span className="hidden border-l border-line pl-3 text-[11px] font-semibold uppercase leading-snug tracking-[0.14em] text-muted xl:block xl:group-data-[compact=true]:hidden">
+            {SITE.tagline}
+          </span>
         </Link>
-        <div className="order-2 lg:order-3">
-          <SearchOverlay />
-        </div>
         <PrimaryNav />
+        <SearchOverlay />
       </div>
-    </header>
+    </StickyHeader>
   );
 }

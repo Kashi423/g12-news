@@ -3,7 +3,7 @@ import { categoryPath, type CategoryDef } from "@g12/config";
 import { formatStoryTime, wasUpdated } from "@/lib/article/time";
 import type { ArticleDetail } from "@/lib/article/types";
 import { BreakingBadge } from "../breaking/breaking-badge";
-import { RelativeTime } from "../breaking/relative-time";
+import { TimeAgo } from "../home/time-ago";
 
 /** The name every story is published under: there is no human reporter to credit, and the page says so. */
 export const BYLINE = "G12 News Desk";
@@ -49,7 +49,7 @@ export function ArticleHeader({ article, category, breaking }: { article: Articl
             {formatStoryTime(article.publishedAt)}
           </time>
           <span aria-hidden="true"> &middot; </span>
-          <RelativeTime iso={article.publishedAt} />
+          <TimeAgo iso={article.publishedAt} />
         </p>
         {updated && article.correctedAt && (
           <p className="text-muted" data-testid="updated-time">

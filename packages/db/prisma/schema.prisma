@@ -28,7 +28,12 @@ enum ArticleStatus {
   PUBLISHED
   DRAFT
   // AI-flagged duplicate or low-quality story; kept for auditing, never shown publicly.
+  // Also the tombstone of a story the admin rejected or deleted: the row stays so its sourceUrl is
+  // never ingested again.
   REJECTED
+  // Accepted by the AI but held back because the "Require review before publish" setting was on at
+  // the time. Invisible on the public site until the admin approves it (-> PUBLISHED) or rejects it.
+  PENDING_REVIEW
 }
 
 model Source {
@@ -38,12 +43,23 @@ model Source {
   // Default category for stories from this feed; the AI may still re-categorize each article.
   category      Category  @default(PAKISTAN)
   isActive      Boolean   @default(true)
+  // The last fetch ATTEMPT (successful or not); lastError says how that attempt went.
   lastFetchedAt DateTime?
   lastError     String?
+  // The last attempt that succeeded. The admin dashboard warns when this is over 2 hours old.
+  lastSuccessAt DateTime?
   createdAt     DateTime  @default(now())
 
   articles   Article[]
   ingestLogs IngestLog[]
+}
+
+// Sitewide switches, one row per key (see packages/config/src/admin.ts for the keys). A missing row
+// means "default". Read on every use, never cached, so a change applies to the very next ingestion.
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }
 
 // A Postgres trigger (migrations/*_breaking_notify) NOTIFYs the `breaking_articles` channel when
@@ -79,11 +95,25 @@ model Article {
   viewCount    Int           @default(0)
   status       ArticleStatus @default(PUBLISHED)
 
+  dailyViews ArticleDailyView[]
+
   @@index([status, publishedAt(sort: Desc)])
   @@index([category, status, publishedAt(sort: Desc)])
   @@index([isBreaking, status, publishedAt(sort: Desc)])
   @@index([status, viewCount(sort: Desc)])
   @@index([sourceId])
+}
+
+// Page views per story per Pakistan calendar day, so the admin dashboard can name "the most-viewed
+// story today" (Article.viewCount is a lifetime total). Written next to the viewCount increment.
+model ArticleDailyView {
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  day       DateTime @db.Date
+  views     Int      @default(0)
+
+  @@id([articleId, day])
+  @@index([day, views(sort: Desc)])
 }
 
 model IngestLog {

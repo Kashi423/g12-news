@@ -1,4 +1,4 @@
-import { breakingCutoff, type CategoryId } from "@g12/config";
+import { breakingCutoff, breakingFallbackCutoff, type CategoryId } from "@g12/config";
 import { MAX_ITEMS } from "./state";
 import type { BreakingItem } from "./types";
 
@@ -57,17 +57,36 @@ export function invalidateBreakingCache(): void {
   cache = null;
 }
 
-/** Current breaking stories, newest first: flagged breaking, published, and within the 6 hour window. */
+/**
+ * Current ticker stories, newest first: flagged breaking within the 6 hour window, topped up with
+ * the latest published stories from the last 3 hours (see BREAKING_FALLBACK_MAX_AGE_HOURS) so the
+ * bar always has something to show, not just when a story clears the breaking bar.
+ */
 export async function getBreakingItems(limit = MAX_ITEMS, now = Date.now()): Promise<BreakingItem[] | null> {
   if (cache && now - cache.at < CACHE_MS) return cache.items.slice(0, limit);
   try {
     const prisma = await database();
-    const rows = await prisma.article.findMany({
+    const breaking = await prisma.article.findMany({
       where: { status: "PUBLISHED", isBreaking: true, publishedAt: { gte: breakingCutoff(now) } },
       orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
       take: MAX_ITEMS,
       select: SELECT,
     });
+    let rows = breaking;
+    if (rows.length < MAX_ITEMS) {
+      const excludeIds = rows.map((row) => row.id);
+      const latest = await prisma.article.findMany({
+        where: {
+          status: "PUBLISHED",
+          publishedAt: { gte: breakingFallbackCutoff(now) },
+          ...(excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {}),
+        },
+        orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
+        take: MAX_ITEMS - rows.length,
+        select: SELECT,
+      });
+      rows = [...rows, ...latest].sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime() || (a.id < b.id ? -1 : 1));
+    }
     cache = { at: now, items: rows.map(toItem) };
     return cache.items.slice(0, limit);
   } catch (error) {

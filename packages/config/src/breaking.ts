@@ -10,6 +10,14 @@
 export const BREAKING_MAX_AGE_HOURS = 6;
 export const BREAKING_MAX_AGE_MS = BREAKING_MAX_AGE_HOURS * 3_600_000;
 
+/**
+ * When there aren't enough genuinely flagged-breaking stories to fill the ticker, it tops up with
+ * the latest published stories published within this window, so the bar is never idle. See
+ * `getBreakingItems` in apps/web/src/lib/breaking/queries.ts.
+ */
+export const BREAKING_FALLBACK_MAX_AGE_HOURS = 3;
+export const BREAKING_FALLBACK_MAX_AGE_MS = BREAKING_FALLBACK_MAX_AGE_HOURS * 3_600_000;
+
 /** Headlines shown in the top-bar ticker. */
 export const BREAKING_TICKER_COUNT = 5;
 /** Cards shown in the homepage breaking block. */
@@ -21,6 +29,11 @@ export const BREAKING_NOTIFY_CHANNEL = "breaking_articles";
 /** Oldest `publishedAt` that still counts as breaking at `now`. */
 export function breakingCutoff(now: Date | number = Date.now()): Date {
   return new Date((typeof now === "number" ? now : now.getTime()) - BREAKING_MAX_AGE_MS);
+}
+
+/** Oldest `publishedAt` that still qualifies for the ticker's latest-news top-up. */
+export function breakingFallbackCutoff(now: Date | number = Date.now()): Date {
+  return new Date((typeof now === "number" ? now : now.getTime()) - BREAKING_FALLBACK_MAX_AGE_MS);
 }
 
 export interface BreakingCandidate {

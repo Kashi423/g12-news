@@ -226,19 +226,24 @@ describe("articleMetadata", () => {
     assert.equal(og.modifiedTime, "2026-09-20T12:00:00.000Z");
     assert.equal(og.section, "Politics");
     assert.deepEqual(og.tags, base.tags);
-    assert.deepEqual(og.images, [{ url: base.imageUrl, alt: base.title }]);
+    // The story's picture is shared as our own 1200 x 630 JPEG copy of it (see lib/seo/share-image.ts),
+    // not the outlet's raw file, which can be too big or in a format link-preview crawlers cannot read.
+    assert.deepEqual(og.images, [{ url: "/article/pm-meets-crown-prince/share.jpg", width: 1200, height: 630, type: "image/jpeg", alt: base.title }]);
+    assert.equal(og.siteName, "G12 News");
+    assert.equal(og.locale, "en_GB", "a locale Facebook knows (it has no Pakistani English)");
+    assert.deepEqual(meta.authors, [{ name: "G12 News" }], "the desk, never a person");
     const tw = meta.twitter as Record<string, unknown>;
     assert.equal(tw.card, "summary_large_image");
     assert.equal(tw.title, base.title);
     assert.equal(tw.description, base.excerpt);
-    assert.deepEqual(tw.images, [base.imageUrl]);
+    assert.deepEqual(tw.images, [{ url: "/article/pm-meets-crown-prince/share.jpg", alt: base.title }]);
   });
   it("without a picture, shares the site's default preview image instead of nothing", () => {
     const meta = articleMetadata({ ...base, imageUrl: null });
-    assert.deepEqual((meta.openGraph as { images: unknown[] }).images, [{ url: "/opengraph-image.jpg", width: 1200, height: 630, alt: "G12 News: Pakistan, As It Happens" }]);
+    assert.deepEqual((meta.openGraph as { images: unknown[] }).images, [{ url: "/opengraph-image.jpg", width: 1200, height: 630, type: "image/jpeg", alt: "G12 News: Pakistan, As It Happens" }]);
     const tw = meta.twitter as Record<string, unknown>;
     assert.equal(tw.card, "summary_large_image");
-    assert.deepEqual(tw.images, ["/opengraph-image.jpg"]);
+    assert.deepEqual(tw.images, [{ url: "/opengraph-image.jpg", alt: "G12 News: Pakistan, As It Happens" }]);
   });
   it("reports a modified time only for a real update", () => {
     assert.equal((articleMetadata(base).openGraph as Record<string, unknown>).modifiedTime, undefined);

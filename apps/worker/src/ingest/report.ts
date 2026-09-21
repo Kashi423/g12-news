@@ -12,7 +12,7 @@ export function formatReport(report: RunReport): string {
   lines.push("-".repeat(79));
 
   const totals: Omit<SourceReport, "sourceId" | "name" | "notDue" | "error" | "firstAiError"> = {
-    found: 0, published: 0, rejected: 0, duplicates: 0, alreadyIngested: 0, tooOld: 0, deferred: 0, invalid: 0, aiErrors: 0, deferredByAi: 0, planned: 0,
+    found: 0, published: 0, queued: 0, rejected: 0, duplicates: 0, alreadyIngested: 0, tooOld: 0, deferred: 0, invalid: 0, aiErrors: 0, deferredByAi: 0, planned: 0,
   };
   for (const r of rows) {
     lines.push(
@@ -27,7 +27,8 @@ export function formatReport(report: RunReport): string {
     `${"TOTAL".padEnd(36)} ${pad(totals.found, 5)} ${pad(totals.published, 5)} ${pad(totals.rejected, 4)} ${pad(totals.duplicates, 4)} ${pad(totals.alreadyIngested, 5)} ${pad(totals.tooOld, 4)} ${pad(totals.deferred, 4)} ${pad(totals.aiErrors + rows.filter((r) => r.error).length, 4)}`,
   );
   lines.push("");
-  lines.push("publ = published now | rej = rejected by the AI | dup = same story as an earlier article");
+  lines.push("publ = accepted (live now, or waiting for review) | rej = rejected by the AI | dup = same story as an earlier article");
+  if (totals.queued > 0) lines.push(`REVIEW IS ON: ${totals.queued} of the ${totals.published} accepted stor${totals.published === 1 ? "y is" : "ies are"} waiting for approval in /admin and not live yet.`);
   lines.push("seen = already stored | old = past the age limit | cap = over the per-run cap (picked up next run) | err = errors");
   if (report.aiUnavailable) {
     const deferred = rows.reduce((n, r) => n + r.deferredByAi, 0);

@@ -9,15 +9,18 @@
     "lint": "eslint",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "brand:build": "node scripts/brand-assets.mjs"
+    "brand:build": "node scripts/brand-assets.mjs",
+    "admin:setup": "tsx scripts/admin-setup.mts"
   },
   "dependencies": {
     "@g12/config": "*",
     "@g12/db": "*",
+    "@g12/worker": "*",
     "next": "16.3.5",
     "pg": "^8.23.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "sharp": "^0.35.4"
   },
   "devDependencies": {
     "@next/env": "16.3.5",

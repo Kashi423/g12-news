@@ -27,6 +27,7 @@
     "db:migrate": "npm run migrate:dev -w @g12/db",
     "db:deploy": "npm run migrate:deploy -w @g12/db",
     "db:studio": "npm run studio -w @g12/db",
-    "postinstall": "npm run db:generate"
+    "postinstall": "npm run db:generate",
+    "admin:setup": "npm run admin:setup -w @g12/web --"
   }
 }

@@ -14,7 +14,7 @@ export const HOMEPAGE_SECTION_IDS = ["PAKISTAN", "WORLD", "SPORTS", "BUSINESS", 
 export const PRIMARY_NAV_CATEGORIES: readonly CategoryDef[] = PRIMARY_NAV_CATEGORY_IDS.map((id) => CATEGORY_BY_ID[id]);
 export const HOMEPAGE_SECTIONS: readonly CategoryDef[] = HOMEPAGE_SECTION_IDS.map((id) => CATEGORY_BY_ID[id]);
 
-/** Static pages linked from the footer. The pages themselves are built in a later step. */
+/** The static pages (apps/web/src/app/<name>/page.tsx), linked from the footer; the menu lists About and Contact. */
 export const SITE_PAGES = [
   { label: "About", href: "/about" },
   { label: "Contact", href: "/contact" },

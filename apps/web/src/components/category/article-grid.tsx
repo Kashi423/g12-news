@@ -8,9 +8,9 @@ import { ArticleCard } from "../home/article-card";
 export function ArticleGrid({ articles }: { articles: readonly HomeArticle[] }) {
   return (
     <ul data-testid="category-articles" className="grid gap-x-5 gap-y-8 sm:grid-cols-2 xl:grid-cols-3">
-      {articles.map((article) => (
+      {articles.map((article, index) => (
         <li key={article.id}>
-          <ArticleCard article={article} />
+          <ArticleCard article={article} headingLevel="h2" eager={index === 0} />
         </li>
       ))}
     </ul>
