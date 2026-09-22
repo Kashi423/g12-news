@@ -3,8 +3,16 @@
 // a scheduled pass restricted to one source: same screening, same AI, same review switch, same IngestLog row.
 //
 // Imported as "@g12/worker/admin" (see this package's `exports`). Nothing here starts a scheduler.
+import type { CategoryId } from "@g12/config";
+import { prisma, Prisma } from "@g12/db";
 import { describeError, fetchFeed } from "./ingest/feed";
+import { computeQualityScore } from "./ingest/quality";
 import { runIngestion, type SourceReport } from "./ingest/pipeline";
+import { AiUnavailableError } from "./ingest/types";
+import { wordCount } from "./ingest/text";
+import { finalUrgency } from "./ingest/urgency";
+import { crossSourceVerify, hasFailingClaims, validateClaims, type SourceText } from "./ingest/verification";
+import { analyzeArticle } from "./lib/ai";
 import { aiConfigProblems } from "./lib/provider";
 import { createRunDeps } from "./runtime";
 import { loadSettings } from "./settings";
@@ -78,4 +86,80 @@ export async function checkFeed(url: string): Promise<FeedCheck> {
   } catch (error) {
     return { ok: false, message: describeError(error) };
   }
+}
+
+export interface DraftActionResult {
+  ok: boolean;
+  message: string;
+}
+
+/**
+ * Re-runs the AI over this story's own original source material and replaces the draft (headline,
+ * summary, excerpt, tags, urgency) with the new attempt. The story stays PENDING_REVIEW either way:
+ * this is a tool for a queued story that needs another try, not a way around review (requirement #9).
+ */
+export async function regenerateDraft(articleId: string): Promise<DraftActionResult> {
+  const article = await prisma.article.findUnique({
+    where: { id: articleId },
+    select: { status: true, category: true, publishedAt: true, sourceUrl: true, sourceName: true, title: true, clusterId: true },
+  });
+  if (!article) return { ok: false, message: "That story no longer exists." };
+  if (article.status !== "PENDING_REVIEW") return { ok: false, message: "Only a story still waiting for review can be regenerated." };
+
+  const lead = article.clusterId ? await prisma.clusterSource.findFirst({ where: { clusterId: article.clusterId, url: article.sourceUrl } }) : null;
+  if (!lead) return { ok: false, message: "The original source text for this story was not kept (it predates this feature), so it cannot be regenerated." };
+
+  const now = new Date();
+  try {
+    const outcome = await analyzeArticle({
+      title: lead.title,
+      description: lead.description,
+      sourceName: article.sourceName,
+      feedCategory: article.category as CategoryId,
+      internationalFeed: article.category === "WORLD",
+      publishedAt: article.publishedAt,
+      now,
+      similar: [],
+    });
+    if (outcome.kind !== "publish") {
+      return { ok: false, message: outcome.kind === "reject" ? `The AI would now reject this item (${outcome.reason}). Left unchanged.` : "The AI now treats this as a duplicate. Left unchanged." };
+    }
+    const urgency = finalUrgency(outcome.urgencyScore, article.publishedAt, now, outcome.headline);
+    await prisma.article.update({ where: { id: articleId }, data: { title: outcome.headline, excerpt: outcome.excerpt, body: outcome.summary, tags: outcome.tags, urgencyScore: urgency } });
+    return { ok: true, message: "Generated a fresh draft from the original source. Still waiting for your review." };
+  } catch (error) {
+    return { ok: false, message: error instanceof AiUnavailableError ? `The AI is unavailable right now: ${error.message}` : `Regeneration failed: ${describeError(error)}` };
+  }
+}
+
+/**
+ * Recomputes claim validation and the internal quality score for this story's CURRENT text (useful
+ * right after editing it by hand, or after another source has corroborated it) without calling the
+ * AI again. Never changes what is shown to anyone; only the internal signals /admin reads.
+ */
+export async function revalidateDraft(articleId: string): Promise<DraftActionResult> {
+  const article = await prisma.article.findUnique({ where: { id: articleId }, select: { body: true, clusterId: true, publishedAt: true } });
+  if (!article) return { ok: false, message: "That story no longer exists." };
+
+  const rows = article.clusterId
+    ? await prisma.clusterSource.findMany({ where: { clusterId: article.clusterId }, include: { source: { select: { reliability: true } } } })
+    : [];
+  const sourceTexts: SourceText[] = rows.map((r) => ({ sourceName: r.sourceName, title: r.title, description: r.description }));
+  const verification = crossSourceVerify(sourceTexts);
+  const claims = validateClaims(article.body, sourceTexts);
+  const quality = computeQualityScore({
+    sourceReliabilities: rows.map((r) => r.source.reliability),
+    verification,
+    claims,
+    summaryWordCount: wordCount(article.body),
+    publishedAt: article.publishedAt,
+    now: new Date(),
+    nearestSimilarity: 0,
+  });
+  await prisma.article.update({
+    where: { id: articleId },
+    data: { qualityScore: quality.score, verification: { ...verification, claims, breakdown: quality.breakdown } as unknown as Prisma.InputJsonValue, developing: verification.agreement === "single-source" },
+  });
+  const note = hasFailingClaims(claims) ? " Some claims do not check out against the collected sources." : "";
+  return { ok: true, message: `Quality score is now ${quality.score}/100.${note}` };
 }

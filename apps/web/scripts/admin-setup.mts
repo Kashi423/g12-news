@@ -12,13 +12,15 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { hashPassword } from "../src/lib/admin/auth";
-
-const envPath = resolve(import.meta.dirname, "../../../.env");
+import { hasEnv, setEnv } from "../src/lib/admin/env-file";
 
 function flag(name: string): string | undefined {
   const hit = process.argv.slice(2).find((a) => a.startsWith(`--${name}=`));
   return hit?.slice(name.length + 3);
 }
+
+// The shared .env at the repo root, unless --env=<file> names another one (used to test this script safely).
+const envPath = flag("env") ? resolve(flag("env")!) : resolve(import.meta.dirname, "../../../.env");
 
 /** Reads a line; with `hidden`, nothing is echoed (typing a password). */
 function ask(question: string, hidden = false): Promise<string> {
@@ -50,19 +52,6 @@ function ask(question: string, hidden = false): Promise<string> {
   });
 }
 
-/** Set KEY="value" in the .env text, replacing an existing line; keeps the file's line-ending style. */
-function setEnv(text: string, key: string, value: string): string {
-  const eol = text.includes("\r\n") ? "\r\n" : "\n";
-  const line = `${key}="${value}"`;
-  const pattern = new RegExp(`^\\s*${key}\\s*=.*$`, "m");
-  if (pattern.test(text)) return text.replace(pattern, line);
-  return `${text}${text && !text.endsWith("\n") ? eol : ""}${line}${eol}`;
-}
-
-function has(text: string, key: string): boolean {
-  return new RegExp(`^\\s*${key}\\s*=\\s*["']?\\S`, "m").test(text);
-}
-
 const email = (flag("email") ?? (await ask("Admin email: "))).trim().toLowerCase();
 if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
   console.error("That does not look like an email address.");
@@ -81,8 +70,8 @@ if (flag("password") === undefined && (await ask("Type it again: ", true)) !== p
 let env = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
 env = setEnv(env, "ADMIN_EMAIL", email);
 env = setEnv(env, "ADMIN_PASSWORD_HASH", hashPassword(password));
-if (!has(env, "ADMIN_SESSION_SECRET")) env = setEnv(env, "ADMIN_SESSION_SECRET", randomBytes(32).toString("hex"));
-const newToken = !has(env, "HEALTH_CHECK_TOKEN");
+if (!hasEnv(env, "ADMIN_SESSION_SECRET")) env = setEnv(env, "ADMIN_SESSION_SECRET", randomBytes(32).toString("hex"));
+const newToken = !hasEnv(env, "HEALTH_CHECK_TOKEN");
 if (newToken) env = setEnv(env, "HEALTH_CHECK_TOKEN", randomBytes(24).toString("hex"));
 writeFileSync(envPath, env);
 

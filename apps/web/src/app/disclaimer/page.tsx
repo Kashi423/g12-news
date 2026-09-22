@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DISCLAIMER } from "@g12/config";
 import { Callout, StaticPage } from "@/components/static/static-page";
 
 export const metadata: Metadata = {
@@ -19,7 +18,7 @@ export default function DisclaimerPage() {
       updated={UPDATED}
     >
       <Callout testId="site-disclaimer">
-        <strong>{DISCLAIMER}</strong>
+        <strong>G12 News is an automated aggregator. Stories are AI-summarized from the original outlets linked in each article.</strong>
       </Callout>
 
       <h2>We do not claim original reporting</h2>
@@ -37,7 +36,10 @@ export default function DisclaimerPage() {
           Every story shows the outlet&rsquo;s name and a link to the original report, in a box directly after the summary. The link opens the outlet&rsquo;s own page in a new tab and does not pass on search-ranking credit
           (<code>rel=&quot;nofollow noopener noreferrer&quot;</code>).
         </li>
-        <li>Every story is labelled as AI-generated, and its byline is &ldquo;G12 News Desk&rdquo;. No human reporter is named, because no human reporter wrote it.</li>
+        <li>
+          The byline on every story is &ldquo;G12 News Desk&rdquo;: no human reporter is named, because no human reporter wrote it. The story itself does not carry an &ldquo;AI-generated&rdquo; label &mdash; that is disclosed here, on this
+          page, instead.
+        </li>
       </ul>
 
       <h2>Accuracy</h2>

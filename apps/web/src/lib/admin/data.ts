@@ -1,4 +1,4 @@
-import { CATEGORY_IDS, parseSwitch, REVIEW_STUCK_AFTER_MS, SETTING_REQUIRE_REVIEW, type CategoryId } from "@g12/config";
+import { AUTO_PUBLISH_QUALITY_THRESHOLD, CATEGORY_IDS, parseSwitch, REVIEW_STUCK_AFTER_MS, SETTING_REQUIRE_REVIEW, type CategoryId } from "@g12/config";
 import type { HealthSnapshot } from "./alerts";
 import { isOverdue } from "./alerts";
 import { pakistanDay } from "./time";
@@ -70,6 +70,14 @@ export async function getStats(now: Date = new Date()): Promise<Stats> {
 
 // ---- Pending review ------------------------------------------------------------------------------------
 
+/** The claim/quality breakdown shape apps/worker/src/ingest writes into Article.verification. */
+export interface VerificationSummary {
+  sourceCount: number;
+  agreement: "confirmed" | "single-source" | "conflicting";
+  conflicts: string[];
+  claims: { text: string; status: string; corroboratingSources: number }[];
+}
+
 export interface PendingItem {
   id: string;
   title: string;
@@ -85,6 +93,10 @@ export interface PendingItem {
   /** How long it has been in the queue, and whether that is over the 4-hour limit. */
   waitingMs: number;
   overdue: boolean;
+  /** Internal editorial signal (see apps/worker/src/ingest/quality.ts): never shown to readers. */
+  qualityScore: number | null;
+  developing: boolean;
+  verification: VerificationSummary | null;
 }
 
 /** At most this many queued stories are shown at once (newest first); approve some and the rest appear. */
@@ -96,7 +108,22 @@ export async function getPendingItems(now: Date = new Date()): Promise<PendingIt
     where: { status: "PENDING_REVIEW" },
     orderBy: [{ ingestedAt: "desc" }, { id: "asc" }],
     take: PENDING_PAGE_SIZE,
-    select: { id: true, title: true, excerpt: true, body: true, category: true, urgencyScore: true, isBreaking: true, sourceName: true, sourceUrl: true, publishedAt: true, ingestedAt: true },
+    select: {
+      id: true,
+      title: true,
+      excerpt: true,
+      body: true,
+      category: true,
+      urgencyScore: true,
+      isBreaking: true,
+      sourceName: true,
+      sourceUrl: true,
+      publishedAt: true,
+      ingestedAt: true,
+      qualityScore: true,
+      developing: true,
+      verification: true,
+    },
   });
   return rows.map((row) => ({
     ...row,
@@ -105,14 +132,69 @@ export async function getPendingItems(now: Date = new Date()): Promise<PendingIt
     ingestedAt: row.ingestedAt.toISOString(),
     waitingMs: now.getTime() - row.ingestedAt.getTime(),
     overdue: isOverdue(row.ingestedAt, now),
+    verification: (row.verification as VerificationSummary | null) ?? null,
   }));
+}
+
+// ---- Pipeline stats (requirement #19) -------------------------------------------------------------------
+
+/** Same Setting keys apps/worker/src/ingest/prisma-store.ts writes AI usage under. */
+const AI_USAGE_KEYS = { calls: "aiUsage:calls", inputTokens: "aiUsage:inputTokens", outputTokens: "aiUsage:outputTokens" } as const;
+
+export interface PipelineStats {
+  rssItemsFetched: number;
+  duplicatesDetected: number;
+  storyClusters: number;
+  articlesGenerated: number;
+  awaitingReview: number;
+  published: number;
+  rejected: number;
+  /** Approximated as a quality score below the auto-publish floor (see @g12/config's AUTO_PUBLISH_QUALITY_THRESHOLD): the article's own claim/verification breakdown is JSON, not cheaply queryable in bulk. */
+  validationFailures: number;
+  socialPosts: { posted: number; pending: number; failed: number };
+  failedJobs: number;
+  aiUsage: { calls: number; inputTokens: number; outputTokens: number };
+}
+
+export async function getPipelineStats(): Promise<PipelineStats> {
+  const db = await getDb();
+  const [byStatus, storyClusters, duplicatesDetected, socialByStatus, failedJobs, fetchedSum, validationFailures, usageRows] = await Promise.all([
+    db.article.groupBy({ by: ["status"], _count: { _all: true } }),
+    db.storyCluster.count(),
+    db.article.count({ where: { status: "REJECTED", excerpt: { startsWith: "Rejected: duplicate" } } }),
+    db.socialPost.groupBy({ by: ["status"], _count: { _all: true } }),
+    db.ingestLog.count({ where: { error: { not: null } } }),
+    db.ingestLog.aggregate({ _sum: { itemsFound: true } }),
+    db.article.count({ where: { qualityScore: { lt: AUTO_PUBLISH_QUALITY_THRESHOLD }, status: { in: ["PUBLISHED", "PENDING_REVIEW"] } } }),
+    db.setting.findMany({ where: { key: { in: Object.values(AI_USAGE_KEYS) } }, select: { key: true, value: true } }),
+  ]);
+  const statusCount = (status: string) => byStatus.find((r) => r.status === status)?._count._all ?? 0;
+  const socialCount = (status: string) => socialByStatus.find((r) => r.status === status)?._count._all ?? 0;
+  const usage = new Map(usageRows.map((r) => [r.key, Number.parseInt(r.value, 10) || 0]));
+  return {
+    rssItemsFetched: fetchedSum._sum.itemsFound ?? 0,
+    duplicatesDetected,
+    storyClusters,
+    // REJECTED rows include AI rejections and duplicate stubs, which have no body; only a real draft counts as "generated".
+    articlesGenerated: statusCount("PUBLISHED") + statusCount("PENDING_REVIEW") + statusCount("DRAFT"),
+    awaitingReview: statusCount("PENDING_REVIEW"),
+    published: statusCount("PUBLISHED"),
+    rejected: statusCount("REJECTED"),
+    validationFailures,
+    socialPosts: { posted: socialCount("POSTED"), pending: socialCount("PENDING"), failed: socialCount("FAILED") },
+    failedJobs,
+    aiUsage: { calls: usage.get(AI_USAGE_KEYS.calls) ?? 0, inputTokens: usage.get(AI_USAGE_KEYS.inputTokens) ?? 0, outputTokens: usage.get(AI_USAGE_KEYS.outputTokens) ?? 0 },
+  };
 }
 
 // ---- Sources and the ingestion log ---------------------------------------------------------------------
 
 export async function getSources() {
   const db = await getDb();
-  return db.source.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, rssUrl: true, category: true, isActive: true, lastFetchedAt: true, lastSuccessAt: true, lastError: true, createdAt: true } });
+  return db.source.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, rssUrl: true, category: true, isActive: true, lastFetchedAt: true, lastSuccessAt: true, lastError: true, createdAt: true, reliability: true },
+  });
 }
 
 export const LOG_ROWS = 100;

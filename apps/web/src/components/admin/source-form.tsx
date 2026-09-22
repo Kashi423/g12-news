@@ -6,7 +6,7 @@ import { saveSourceAction, type ActionResult } from "@/lib/admin/actions";
 
 interface Props {
   /** Present when editing an existing source; absent for the "add" form. */
-  source?: { id: string; name: string; rssUrl: string; category: string; isActive: boolean };
+  source?: { id: string; name: string; rssUrl: string; category: string; isActive: boolean; reliability: number };
 }
 
 const field = "border border-line bg-white px-2 py-1.5 text-sm";
@@ -41,6 +41,13 @@ export function SourceForm({ source }: Props) {
         {CATEGORIES.map((c) => (
           <option key={c.id} value={c.id}>
             {c.name}
+          </option>
+        ))}
+      </select>
+      <select name="reliability" defaultValue={String(source?.reliability ?? 3)} aria-label="Editorial reliability" title="Editorial trust, 1-5: feeds a story's internal quality score" className={field}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <option key={n} value={n}>
+            Reliability {n}/5
           </option>
         ))}
       </select>

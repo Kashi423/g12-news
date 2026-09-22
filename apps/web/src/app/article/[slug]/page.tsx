@@ -68,7 +68,7 @@ export default async function ArticlePage({ params }: Props) {
           <ArticleHeader article={article} category={category} breaking={isBreakingNow(article)} />
           <ArticleHero src={article.imageUrl} credit={article.imageCredit} />
           <ArticleBody body={article.body} fallback={article.excerpt} />
-          <SourceBox sourceName={article.sourceName} sourceUrl={article.sourceUrl} />
+          <SourceBox sources={article.sources} />
           <TagChips tags={article.tags} category={category} />
           <ShareButtons targets={shareTargets({ title: article.title, url })} />
           <p className="mt-8 border-t border-line pt-4 text-xs leading-relaxed text-muted">{DISCLAIMER}</p>

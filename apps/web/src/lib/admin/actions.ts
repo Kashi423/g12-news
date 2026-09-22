@@ -82,6 +82,13 @@ export async function setRequireReviewAction(formData: FormData): Promise<void> 
   refresh();
 }
 
+/** Fire-and-forget: social posting must never make the admin's click wait, or fail the approval if a platform errors. */
+function postApprovedToSocial(ids: string[]): void {
+  void import("@g12/worker/social")
+    .then(({ publishToSocial }) => Promise.all(ids.map((id) => publishToSocial(id))))
+    .catch((error: unknown) => console.error(`[admin] social-post after approval failed: ${error instanceof Error ? error.message : error}`));
+}
+
 export async function approveAction(ids: string[]): Promise<ActionResult> {
   await requireAdmin();
   const wanted = idsOf(ids);
@@ -89,6 +96,7 @@ export async function approveAction(ids: string[]): Promise<ActionResult> {
   const done = await db.approvePending(wanted);
   refresh();
   if (done === 0) return { ok: false, message: "Nothing to approve: those stories were already dealt with." };
+  postApprovedToSocial(wanted);
   return { ok: true, message: `${done === 1 ? "1 story is" : `${done} stories are`} live now.` };
 }
 
@@ -98,7 +106,26 @@ export async function editAndApproveAction(id: string, edit: { title?: unknown; 
   if (!checked.ok) return { ok: false, message: checked.error };
   const done = typeof id === "string" && (await db.editAndApprove(id, checked.value));
   refresh();
+  if (done && typeof id === "string") postApprovedToSocial([id]);
   return done ? { ok: true, message: "Saved with your edits and live now." } : { ok: false, message: "That story was already dealt with." };
+}
+
+export async function regenerateAction(id: string): Promise<ActionResult> {
+  await requireAdmin();
+  if (typeof id !== "string" || !id) return { ok: false, message: "No story given." };
+  const { regenerateDraft } = await import("@g12/worker/admin");
+  const result = await regenerateDraft(id);
+  refresh();
+  return result;
+}
+
+export async function revalidateAction(id: string): Promise<ActionResult> {
+  await requireAdmin();
+  if (typeof id !== "string" || !id) return { ok: false, message: "No story given." };
+  const { revalidateDraft } = await import("@g12/worker/admin");
+  const result = await revalidateDraft(id);
+  refresh();
+  return result;
 }
 
 export async function rejectAction(ids: string[]): Promise<ActionResult> {
@@ -167,7 +194,7 @@ const normalizeUrl = (value: string): string => {
 /** Add (no `id` field) or edit (with one) a source. A new or changed feed address is test-fetched right away. */
 export async function saveSourceAction(_previous: ActionResult | null, formData: FormData): Promise<ActionResult> {
   await requireAdmin();
-  const checked = validateSource({ name: formData.get("name"), rssUrl: formData.get("rssUrl"), category: formData.get("category"), isActive: formData.get("isActive") });
+  const checked = validateSource({ name: formData.get("name"), rssUrl: formData.get("rssUrl"), category: formData.get("category"), isActive: formData.get("isActive"), reliability: formData.get("reliability") });
   if (!checked.ok) return { ok: false, message: checked.error };
   const id = text(formData, "id");
   const prisma = await getDb();

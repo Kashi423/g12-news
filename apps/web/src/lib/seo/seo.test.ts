@@ -20,6 +20,7 @@ const article: ArticleDetail = {
   tags: ["kohat", "terrorism"],
   sourceName: "Dawn",
   sourceUrl: "https://www.dawn.com/news/2031471/case",
+  sources: [{ sourceName: "Dawn", sourceUrl: "https://www.dawn.com/news/2031471/case" }],
   publishedAt: "2026-09-21T02:39:38.000Z",
   correctedAt: null,
   isBreaking: false,

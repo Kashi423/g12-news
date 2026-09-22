@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import { CATEGORY_IDS } from "@g12/config";
 import { AutoRefresh } from "@/components/admin/auto-refresh";
 import { LoginForm } from "@/components/admin/login-form";
-import { AdminHeader, AlertBanners, ArticlesPanel, HealthTable, LogTable, ReviewSwitch, SetupNotice, SourcesPanel, StatsStrip, TabNav, TABS, type TabId } from "@/components/admin/panels";
+import { AdminHeader, AlertBanners, ArticlesPanel, HealthTable, LogTable, PipelineStatsPanel, ReviewSwitch, SetupNotice, SourcesPanel, StatsStrip, TabNav, TABS, type TabId } from "@/components/admin/panels";
 import { PendingQueue } from "@/components/admin/pending-queue";
 import { computeAlerts } from "@/lib/admin/alerts";
 import { adminConfig, adminConfigProblems } from "@/lib/admin/auth";
-import { getHealthSnapshot, getLogRows, getPendingItems, getSources, getStats, searchArticles, type ArticleFilter, type ArticleStatusFilter } from "@/lib/admin/data";
+import { getHealthSnapshot, getLogRows, getPendingItems, getPipelineStats, getSources, getStats, searchArticles, type ArticleFilter, type ArticleStatusFilter } from "@/lib/admin/data";
 import { isAdmin } from "@/lib/admin/session";
 
 // The owner's page: built fresh for every request, never cached, never indexed (headers in next.config.mjs too).
@@ -77,6 +77,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       <section aria-label={TABS.find((t) => t.id === tab)?.label}>
         {tab === "pending" ? <PendingTab requireReview={snapshot.requireReview} total={snapshot.pendingCount} now={now} /> : null}
         {tab === "health" ? <HealthTable sources={await getSources()} now={now} /> : null}
+        {tab === "pipeline" ? <PipelineStatsPanel stats={await getPipelineStats()} /> : null}
         {tab === "log" ? <LogTable rows={await getLogRows(one(params.errors) === "1")} errorsOnly={one(params.errors) === "1"} now={now} /> : null}
         {tab === "sources" ? <SourcesPanel sources={await getSources()} /> : null}
         {tab === "articles" ? <ArticlesTab filter={parseFilter(params)} now={now} /> : null}
@@ -90,15 +91,10 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 async function PendingTab({ requireReview, total, now }: { requireReview: boolean; total: number; now: Date }) {
-  const items = await getPendingItems(now);
-  if (items.length === 0) {
-    return (
-      <p className="border border-line bg-surface p-4 text-sm text-muted" data-testid="pending-empty">
-        {requireReview ? "Nothing is waiting for review. New stories appear here as the pipeline finds them." : "Nothing is waiting for review. Turn on “Require review before publish” above to hold every new story here until you approve it."}
-      </p>
-    );
-  }
-  return <PendingQueue items={items} total={total} />;
+  const emptyText = requireReview
+    ? "Nothing is waiting for review. New stories appear here as the pipeline finds them."
+    : "Nothing is waiting for review. Turn on “Require review before publish” above to hold every new story here until you approve it.";
+  return <PendingQueue items={await getPendingItems(now)} total={total} emptyText={emptyText} />;
 }
 
 async function ArticlesTab({ filter, now }: { filter: ArticleFilter; now: Date }) {

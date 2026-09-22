@@ -2,7 +2,7 @@ import Link from "next/link";
 import { BREAKING_MAX_AGE_HOURS, CATEGORIES, CATEGORY_BY_ID, isCurrentlyBreaking, REVIEW_STUCK_AFTER_HOURS, type CategoryId } from "@g12/config";
 import { deleteArticleAction, logoutAction, recategorizeAction, republishAction, setBreakingAction, setRequireReviewAction, unpublishAction } from "@/lib/admin/actions";
 import { isStale, lastSuccess, type Alert } from "@/lib/admin/alerts";
-import { ARTICLES_PER_PAGE, LOG_ROWS, type ArticleFilter, type Stats, type getLogRows, type getSources, type searchArticles } from "@/lib/admin/data";
+import { ARTICLES_PER_PAGE, LOG_ROWS, type ArticleFilter, type PipelineStats, type Stats, type getLogRows, type getSources, type searchArticles } from "@/lib/admin/data";
 import { ago, formatPkt } from "@/lib/admin/time";
 import { ConfirmSubmit } from "./confirm-submit";
 import { FetchNowButton } from "./fetch-now-button";
@@ -130,6 +130,7 @@ export function StatsStrip({ stats, pendingCount, overdue, now }: { stats: Stats
 export const TABS = [
   { id: "pending", label: "Pending review" },
   { id: "health", label: "Pipeline health" },
+  { id: "pipeline", label: "Pipeline stats" },
   { id: "log", label: "Ingestion log" },
   { id: "sources", label: "Sources" },
   { id: "articles", label: "Articles" },
@@ -197,6 +198,79 @@ export function HealthTable({ sources, now }: { sources: SourceRows; now: Date }
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * The full RSS -> AI -> Publish -> Social pipeline's own numbers, for the owner, never the public
+ * (requirement #19). Quality-score-based figures are internal editorial signals, not shown to readers.
+ */
+export function PipelineStatsPanel({ stats }: { stats: PipelineStats }) {
+  const tile = "flex min-w-0 flex-col gap-0.5 border border-line bg-white p-3";
+  const label = "text-xs font-bold uppercase text-muted";
+  const value = "text-2xl font-black";
+  return (
+    <div className="flex flex-col gap-4">
+      <section aria-label="Pipeline stages" className="grid grid-cols-2 gap-2 lg:grid-cols-4" data-testid="pipeline-stats">
+        <div className={tile}>
+          <span className={label}>RSS items fetched</span>
+          <span className={value}>{stats.rssItemsFetched.toLocaleString("en")}</span>
+          <span className="text-xs text-muted">All time, every source</span>
+        </div>
+        <div className={tile}>
+          <span className={label}>Duplicates detected</span>
+          <span className={value}>{stats.duplicatesDetected.toLocaleString("en")}</span>
+          <span className="text-xs text-muted">Same story, different outlet</span>
+        </div>
+        <div className={tile}>
+          <span className={label}>Story clusters</span>
+          <span className={value}>{stats.storyClusters.toLocaleString("en")}</span>
+          <span className="text-xs text-muted">Distinct events tracked</span>
+        </div>
+        <div className={tile}>
+          <span className={label}>Articles generated</span>
+          <span className={value}>{stats.articlesGenerated.toLocaleString("en")}</span>
+          <span className="text-xs text-muted">Live, queued or unpublished</span>
+        </div>
+        <div className={tile}>
+          <span className={label}>Awaiting review</span>
+          <span className={value}>{stats.awaitingReview.toLocaleString("en")}</span>
+        </div>
+        <div className={tile}>
+          <span className={label}>Published</span>
+          <span className={value}>{stats.published.toLocaleString("en")}</span>
+        </div>
+        <div className={tile}>
+          <span className={label}>Rejected</span>
+          <span className={value}>{stats.rejected.toLocaleString("en")}</span>
+        </div>
+        <div className={`${tile} ${stats.validationFailures > 0 ? "border-amber-500 bg-amber-50" : ""}`}>
+          <span className={label}>Validation failures</span>
+          <span className={value}>{stats.validationFailures.toLocaleString("en")}</span>
+          <span className="text-xs text-muted">Quality score below the auto-publish floor</span>
+        </div>
+        <div className={tile}>
+          <span className={label}>Social posts</span>
+          <span className={value}>{stats.socialPosts.posted.toLocaleString("en")}</span>
+          <span className="text-xs text-muted">
+            {stats.socialPosts.pending} pending
+            {stats.socialPosts.failed > 0 ? `, ${stats.socialPosts.failed} failed` : ""}
+          </span>
+        </div>
+        <div className={`${tile} ${stats.failedJobs > 0 ? "border-crimson-800 bg-crimson-50" : ""}`}>
+          <span className={label}>Failed jobs</span>
+          <span className={value}>{stats.failedJobs.toLocaleString("en")}</span>
+          <span className="text-xs text-muted">Ingestion runs with an error</span>
+        </div>
+        <div className={`${tile} lg:col-span-2`}>
+          <span className={label}>AI usage (all time)</span>
+          <span className={value}>{stats.aiUsage.calls.toLocaleString("en")} calls</span>
+          <span className="text-xs text-muted">
+            {stats.aiUsage.inputTokens.toLocaleString("en")} input + {stats.aiUsage.outputTokens.toLocaleString("en")} output tokens
+          </span>
+        </div>
+      </section>
     </div>
   );
 }

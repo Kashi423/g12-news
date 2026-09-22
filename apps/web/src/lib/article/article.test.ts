@@ -204,6 +204,7 @@ describe("articleMetadata", () => {
     tags: ["shehbaz sharif", "saudi arabia"],
     sourceName: "Dawn",
     sourceUrl: "https://www.dawn.com/news/1",
+    sources: [{ sourceName: "Dawn", sourceUrl: "https://www.dawn.com/news/1" }],
     publishedAt: "2026-09-20T10:00:00.000Z",
     correctedAt: null,
     isBreaking: false,

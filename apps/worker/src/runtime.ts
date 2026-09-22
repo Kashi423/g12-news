@@ -18,11 +18,23 @@ export function missingEnv({ needsAi }: { needsAi: boolean }): string[] {
  */
 export async function createRunDeps(log: (line: string) => void): Promise<RunDeps> {
   const { createPrismaStore } = await import("./ingest/prisma-store");
+  const { usage } = await import("./lib/ai");
   const settings = loadSettings();
+  const store = createPrismaStore();
   return {
-    store: createPrismaStore(),
+    store,
     fetchFeed: (url) => fetchFeed(url, settings),
-    analyze: analyzeArticle,
+    // Persists each call's share of the in-process usage counter, so /admin can show cumulative AI
+    // usage across restarts. `analyzeArticle` itself stays store-agnostic (see lib/ai.ts).
+    analyze: async (input) => {
+      const before = { ...usage };
+      try {
+        return await analyzeArticle(input);
+      } finally {
+        const delta = { calls: usage.calls - before.calls, inputTokens: usage.inputTokens - before.inputTokens, outputTokens: usage.outputTokens - before.outputTokens };
+        if (delta.calls > 0) await store.recordAiUsage(delta).catch(() => undefined);
+      }
+    },
     settings,
     log,
   };

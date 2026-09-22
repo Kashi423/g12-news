@@ -1,13 +1,20 @@
-import { SOURCES } from "@g12/config";
+import { AUTO_PUBLISH_QUALITY_THRESHOLD, SOURCES, type CategoryId } from "@g12/config";
 import type { IngestSettings } from "../settings";
 import { describeError, type FeedItem } from "./feed";
 import { createSerializer, mapPool } from "./pool";
+import { computeQualityScore } from "./quality";
+import { isSensitiveStory } from "./sensitivity";
 import { TitleIndex } from "./similarity";
-import type { IngestStore, NewArticle, SourceRecord } from "./store";
-import { plain, truncate } from "./text";
+import type { IngestStore, NewArticle, SourceRecord, SourceSnippet } from "./store";
+import { plain, truncate, wordCount } from "./text";
 import { AiUnavailableError, type AnalysisOutcome, type Analyzer, type RejectReason } from "./types";
 import { canonicalizeUrl, slugify, uniqueSlug } from "./url";
 import { finalUrgency } from "./urgency";
+import { crossSourceVerify, hasFailingClaims, validateClaims, type ClaimAssessment, type SourceText } from "./verification";
+
+/** At most one ingestion pass runs at a time; a stale lock (a crashed process) expires after this. */
+const LOCK_KEY = "ingest";
+const LOCK_TTL_MS = 15 * 60_000;
 
 export interface RunOptions {
   /** Ignore the per-feed minimum interval (manual runs only). */
@@ -70,6 +77,8 @@ export interface RunReport {
   sources: SourceReport[];
   /** Why the AI stopped being used part-way through the run, if it did. */
   aiUnavailable: string | null;
+  /** True when this call did nothing because another ingestion pass already held the lock. */
+  lockSkipped?: boolean;
 }
 
 interface Candidate {
@@ -82,6 +91,13 @@ interface Candidate {
   publishedAt: Date;
   imageUrl: string | null;
   imageCredit: string | null;
+  guid: string | null;
+}
+
+/** A headline recently published or queued, for near-duplicate matching and clustering. */
+interface KnownHeadline {
+  title: string;
+  id: string;
 }
 
 const OUTLET_BY_URL = new Map(SOURCES.map((s) => [s.rssUrl, s.outlet]));
@@ -140,6 +156,15 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
   const runCap = options.maxItemsPerRun ?? settings.maxItemsPerRun;
   let aiDown: string | null = null;
 
+  // At most one pass runs at a time, across processes: a scheduled tick and a manual run (or the
+  // admin dashboard's "Fetch now", which runs in the web server's own process) must not both hit the
+  // same feeds. A dry run touches nothing, so it never needs the lock. A lock already held is not an
+  // error: the caller (the scheduler, the CLI, the dashboard) decides whether to say anything about it.
+  if (!dryRun && !(await store.acquireLock(LOCK_KEY, LOCK_TTL_MS))) {
+    log("  another ingestion pass is already running; skipping this run");
+    return { startedAt, finishedAt: clock(), dryRun, sources: [], aiUnavailable: null, lockSkipped: true };
+  }
+
   const needle = options.sourceFilter?.toLowerCase();
   const ids = options.sourceIds ? new Set(options.sourceIds) : null;
   const sources = (await store.listActiveSources()).filter((s) => (!needle || `${s.name} ${s.rssUrl}`.toLowerCase().includes(needle)) && (!ids || ids.has(s.id)));
@@ -194,7 +219,7 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
           continue;
         }
         seenUrls.add(url);
-        list.push({ source, report, outlet, title: item.title, url, description: item.snippet, publishedAt, imageUrl: item.imageUrl, imageCredit: item.imageCredit ?? null });
+        list.push({ source, report, outlet, title: item.title, url, description: item.snippet, publishedAt, imageUrl: item.imageUrl, imageCredit: item.imageCredit ?? null, guid: item.guid ?? null });
       }
       staged.push(list);
     }
@@ -232,11 +257,55 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
     if (candidates.length === 0) return finish();
 
     // 3. Screen for duplicates, then have the AI process the rest in waves.
-    const published = new TitleIndex<{ title: string }>();
-    for (const article of await store.recentPublished(settings.recentWindow)) published.add(article.title, { title: article.title });
+    const published = new TitleIndex<KnownHeadline>();
+    for (const article of await store.recentPublished(settings.recentWindow)) published.add(article.title, { title: article.title, id: article.id });
 
     const serial = createSerializer();
     let pending = candidates.sort((a, b) => a.publishedAt.getTime() - b.publishedAt.getTime()); // earliest report first
+
+    const snippetOf = (c: Candidate): SourceSnippet => ({
+      sourceId: c.source.id,
+      sourceName: c.outlet,
+      url: c.url,
+      guid: c.guid,
+      title: c.title,
+      description: c.description,
+      publishedAt: c.publishedAt,
+      reliability: c.source.reliability ?? 3,
+    });
+
+    // Cross-source verification, claim validation and the quality score they feed, all recomputed
+    // from the cluster's current source list. Called once for a story's own lead report (from
+    // savePublished, right after the Article row exists) and again whenever a later report is judged
+    // the same story (see the duplicate-handling calls below): the cluster, not the Article, is where
+    // "every source for this story" lives (requirement: story grouping). Never lets a clustering
+    // problem take down the run it is riding on.
+    const updateCluster = async (articleId: string, category: CategoryId, snippet: SourceSnippet): Promise<void> => {
+      try {
+        const attach = await store.attachSource(articleId, category, snippet);
+        const sourceTexts: SourceText[] = attach.sources.map((s) => ({ sourceName: s.sourceName, title: s.title, description: s.description }));
+        const verification = crossSourceVerify(sourceTexts);
+        const claims: ClaimAssessment[] = validateClaims(attach.articleBody, sourceTexts);
+        const nearestSimilarity = published.matches(snippet.title, settings.candidateSimilarity, 1)[0]?.score ?? 0;
+        const quality = computeQualityScore({
+          sourceReliabilities: attach.sources.map((s) => s.reliability),
+          verification,
+          claims,
+          summaryWordCount: wordCount(attach.articleBody),
+          publishedAt: snippet.publishedAt,
+          now,
+          nearestSimilarity,
+        });
+        await store.updateVerification(articleId, {
+          qualityScore: quality.score,
+          verification: { ...verification, claims, breakdown: quality.breakdown },
+          developing: verification.agreement === "single-source",
+          touchedContent: attach.added && attach.sources.length > 1,
+        });
+      } catch (error) {
+        log(`  ! could not update the story cluster: ${describeError(error)}`);
+      }
+    };
 
     const saveRejected = async (c: Candidate, reason: RejectReason, detail?: string) => {
       const article: NewArticle = {
@@ -261,7 +330,7 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
       else c.report.rejected++;
     };
 
-    const savePublished = async (c: Candidate, outcome: Extract<AnalysisOutcome, { kind: "publish" }>) => {
+    const savePublished = async (c: Candidate, outcome: Extract<AnalysisOutcome, { kind: "publish" }>, nearestSimilarity: number) => {
       const urgency = finalUrgency(outcome.urgencyScore, c.publishedAt, now, outcome.headline);
       const article: NewArticle = {
         slug: await uniqueSlug(outcome.slug, c.url, (s) => store.slugExists(s)),
@@ -280,39 +349,72 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
         urgencyScore: urgency,
         status: "PUBLISHED",
       };
+
+      // Claim validation and a quality estimate against this one source, ahead of the save: enough
+      // to decide whether the story is fit to auto-publish (requirements #7-9) without yet touching
+      // the database. `updateCluster` below repeats this against the cluster's full source list once
+      // the Article row exists, which is identical for a brand-new story (still one source) and is
+      // what later corroboration recomputes from.
+      const soloSource: SourceText = { sourceName: c.outlet, title: c.title, description: c.description };
+      const soloVerification = crossSourceVerify([soloSource]);
+      const soloClaims = validateClaims(outcome.summary, [soloSource]);
+      const soloQuality = computeQualityScore({
+        sourceReliabilities: [c.source.reliability ?? 3],
+        verification: soloVerification,
+        claims: soloClaims,
+        summaryWordCount: wordCount(outcome.summary),
+        publishedAt: c.publishedAt,
+        now,
+        nearestSimilarity,
+      });
+      const sensitive = isSensitiveStory(outcome.category, c.title, outcome.headline, outcome.summary);
+      // Below the quality floor, a sensitive story, or claims the story's own source does not back up:
+      // held for a human even when "Require review before publish" is off (requirements #9, #16).
+      const autoGate = soloQuality.score < AUTO_PUBLISH_QUALITY_THRESHOLD || sensitive || hasFailingClaims(soloClaims);
+
       // The review switch is read HERE, per story, straight before the save (never once per run or at
       // start-up), so flipping it applies to the very next story. It also applies to breaking stories:
       // the flag is kept, but a queued story is not live, so nothing is announced until it is approved.
       // If the read fails the story is not saved and is retried on the next run (fail closed).
-      const review = await store.requireReview();
+      const review = (await store.requireReview()) || autoGate;
       article.status = review ? "PENDING_REVIEW" : "PUBLISHED";
       const result = await store.createArticle(article);
-      if (!result.ok) {
+      let articleId: string;
+      if (result.ok) {
+        articleId = result.id;
+      } else {
         if (result.conflict === "url") return void c.report.alreadyIngested++;
         // Slug raced with another writer: retry once with a URL-derived suffix.
         const retry = await store.createArticle({ ...article, slug: await uniqueSlug(`${article.slug}-${Date.now().toString(36)}`, c.url, (s) => store.slugExists(s)) });
         if (!retry.ok) return void c.report.alreadyIngested++;
+        articleId = retry.id;
       }
       c.report.published++;
       if (review) c.report.queued++;
       // Later waves compare against both our headline and the original one other outlets may echo.
-      published.add(article.title, { title: article.title });
-      published.add(c.title, { title: article.title });
-      log(`  + ${review ? "QUEUED   " : "PUBLISHED"}  [${article.category}] urgency ${urgency}${article.isBreaking ? " BREAKING" : ""}  "${article.title}"  <- ${c.outlet}${review ? "  (waiting for review)" : ""}`);
+      published.add(article.title, { title: article.title, id: articleId });
+      published.add(c.title, { title: article.title, id: articleId });
+      // Say WHY it queued when the global switch did not force it, so the reason shows up in the log
+      // and in "Fetch now"'s result line, not just the review queue itself.
+      const queueNote = review && autoGate ? `  (${sensitive ? "sensitive" : hasFailingClaims(soloClaims) ? "unsupported claims" : "low quality score"}, waiting for review)` : review ? "  (waiting for review)" : "";
+      log(`  + ${review ? "QUEUED   " : "PUBLISHED"}  [${article.category}] urgency ${urgency}${article.isBreaking ? " BREAKING" : ""}  "${article.title}"  <- ${c.outlet}${queueNote}`);
+      await updateCluster(articleId, article.category, snippetOf(c));
     };
 
     let wave = 0;
     while (pending.length > 0) {
       wave++;
       const inWave = new TitleIndex<Candidate>();
-      const leaders: { c: Candidate; similar: { id: number; title: string }[] }[] = [];
+      const leaders: { c: Candidate; similar: { id: number; title: string }[]; similarIds: string[]; nearestSimilarity: number }[] = [];
       const next: Candidate[] = [];
 
       for (const c of pending) {
         const strong = published.matches(c.title, settings.duplicateSimilarity, 1, settings.duplicateMinSharedTokens)[0];
         if (strong) {
-          if (!dryRun) await saveRejected(c, "duplicate", `of "${truncate(strong.entry.ref.title, 60)}"`);
-          else c.report.duplicates++;
+          if (!dryRun) {
+            await saveRejected(c, "duplicate", `of "${truncate(strong.entry.ref.title, 60)}"`);
+            await updateCluster(strong.entry.ref.id, c.source.category, snippetOf(c));
+          } else c.report.duplicates++;
           log(`  = DUPLICATE  "${truncate(c.title, 70)}"  ~ "${truncate(strong.entry.ref.title, 50)}"  <- ${c.outlet}`);
           continue;
         }
@@ -322,9 +424,12 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
           continue;
         }
         // A published story is indexed under its own headline and the original one; show each article to the AI once.
-        const titles = [...new Set(published.matches(c.title, settings.candidateSimilarity, 8).map((m) => m.entry.ref.title))].slice(0, 3);
+        const matches = published.matches(c.title, settings.candidateSimilarity, 8);
+        const byTitle = new Map<string, string>(); // title -> article id, first (best-scoring) match wins
+        for (const m of matches) if (!byTitle.has(m.entry.ref.title)) byTitle.set(m.entry.ref.title, m.entry.ref.id);
+        const titles = [...byTitle.keys()].slice(0, 3);
         const similar = titles.map((title, i) => ({ id: i + 1, title }));
-        leaders.push({ c, similar });
+        leaders.push({ c, similar, similarIds: titles.map((t) => byTitle.get(t)!), nearestSimilarity: matches[0]?.score ?? 0 });
         inWave.add(c.title, c);
       }
 
@@ -336,7 +441,7 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
       }
 
       log(`  analyzing ${leaders.length} item(s) with the AI (round ${wave})`);
-      await mapPool(leaders, settings.aiConcurrency, async ({ c, similar }) => {
+      await mapPool(leaders, settings.aiConcurrency, async ({ c, similar, similarIds, nearestSimilarity }) => {
         if (aiDown) {
           c.report.deferred++;
           c.report.deferredByAi++;
@@ -370,11 +475,15 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
           return;
         }
         await serial(async () => {
-          if (outcome.kind === "publish") return savePublished(c, outcome);
+          if (outcome.kind === "publish") return savePublished(c, outcome, nearestSimilarity);
           if (outcome.kind === "duplicate") {
-            const of = similar.find((s) => s.id === outcome.ofId)?.title ?? "an earlier story";
+            const matchIndex = similar.findIndex((s) => s.id === outcome.ofId);
+            const of = matchIndex >= 0 ? similar[matchIndex]!.title : "an earlier story";
             log(`  = DUPLICATE  "${truncate(c.title, 70)}"  (AI: same story as "${truncate(of, 50)}")  <- ${c.outlet}`);
-            return saveRejected(c, "duplicate", `of "${truncate(of, 60)}"`);
+            await saveRejected(c, "duplicate", `of "${truncate(of, 60)}"`);
+            const leaderArticleId = matchIndex >= 0 ? similarIds[matchIndex] : undefined;
+            if (leaderArticleId) await updateCluster(leaderArticleId, c.source.category, snippetOf(c));
+            return;
           }
           log(`  - REJECTED   ${outcome.reason}  "${truncate(c.title, 70)}"  <- ${c.outlet}`);
           return saveRejected(c, outcome.reason, outcome.note);
@@ -408,6 +517,7 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
           })
           .catch((error: unknown) => log(`  could not write IngestLog for ${r.name}: ${describeError(error)}`));
       }
+      await store.releaseLock(LOCK_KEY).catch((error: unknown) => log(`  could not release the ingestion lock: ${describeError(error)}`));
     }
   }
 

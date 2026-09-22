@@ -12,6 +12,8 @@ export interface FeedItem {
   imageUrl: string | null;
   /** Photographer or agency the feed credited for the image (Media RSS), or null/absent when it named nobody. */
   imageCredit?: string | null;
+  /** The feed's own <guid>, kept for traceability even when `url` (the link) differs from it. */
+  guid?: string | null;
 }
 
 interface MediaNode {
@@ -178,6 +180,7 @@ export async function parseFeedXml(xml: string): Promise<FeedItem[]> {
       imageUrl,
       // A credit belongs to a picture: with no picture there is nothing to credit.
       imageCredit: imageUrl ? pickImageCredit(item) : null,
+      guid: typeof item.guid === "string" && item.guid.trim() ? item.guid.trim().slice(0, 500) : null,
     });
   }
   return items;

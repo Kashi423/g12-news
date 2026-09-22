@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { CATEGORY_BY_ID, CATEGORIES, type CategoryId } from "@g12/config";
-import { approveAction, editAndApproveAction, rejectAction, type ActionResult } from "@/lib/admin/actions";
+import { approveAction, editAndApproveAction, regenerateAction, rejectAction, revalidateAction, type ActionResult } from "@/lib/admin/actions";
 import type { PendingItem } from "@/lib/admin/data";
 import { formatAge } from "@/lib/admin/time";
 
@@ -12,7 +12,7 @@ const plain = `${button} border-line bg-white text-ink hover:bg-surface`;
 const danger = `${button} border-crimson bg-white text-crimson hover:bg-crimson-50`;
 
 /** The review queue: every story waiting for a decision, with its full text, and the actions on it. */
-export function PendingQueue({ items, total }: { items: PendingItem[]; total: number }) {
+export function PendingQueue({ items, total, emptyText }: { items: PendingItem[]; total: number; emptyText: string }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [notice, setNotice] = useState<ActionResult | null>(null);
@@ -37,6 +37,23 @@ export function PendingQueue({ items, total }: { items: PendingItem[]; total: nu
       else next.delete(id);
       return next;
     });
+  }
+
+  // The empty state lives here, not in the page: when the last story is approved this component must stay
+  // mounted, or the "N stories are live now" confirmation would vanish with it.
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-col gap-3">
+        {notice ? (
+          <p role="status" className={`border px-3 py-2 text-sm font-semibold ${notice.ok ? "border-green-600 bg-green-50 text-green-800" : "border-crimson bg-crimson-50 text-crimson"}`}>
+            {notice.message}
+          </p>
+        ) : null}
+        <p className="border border-line bg-surface p-4 text-sm text-muted" data-testid="pending-empty">
+          {emptyText}
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -110,6 +127,7 @@ export function PendingQueue({ items, total }: { items: PendingItem[]; total: nu
                     </span>
                     <span className={item.overdue ? "font-bold text-amber-800" : ""}>Waiting {formatAge(item.waitingMs)}{item.overdue ? " (overdue)" : ""}</span>
                   </p>
+                  <QualityBadges item={item} />
                   <h3 className="mt-1 font-serif text-lg font-bold leading-snug">{item.title}</h3>
                   <p className="mt-1 text-sm italic text-muted">{item.excerpt}</p>
                   <p className="mt-2 whitespace-pre-line text-sm leading-relaxed">{item.body}</p>
@@ -119,6 +137,12 @@ export function PendingQueue({ items, total }: { items: PendingItem[]; total: nu
                     </button>
                     <button type="button" disabled={busy} className={plain} onClick={() => setEditing(item.id)}>
                       Edit &amp; approve
+                    </button>
+                    <button type="button" disabled={busy} className={plain} onClick={() => run(() => regenerateAction(item.id))}>
+                      Regenerate
+                    </button>
+                    <button type="button" disabled={busy} className={plain} onClick={() => run(() => revalidateAction(item.id))}>
+                      Revalidate
                     </button>
                     <button
                       type="button"
@@ -138,6 +162,35 @@ export function PendingQueue({ items, total }: { items: PendingItem[]; total: nu
         </article>
       ))}
     </div>
+  );
+}
+
+/**
+ * The pipeline's internal editorial signal — quality score, source agreement, claim validation —
+ * surfaced for the admin only (requirement #8: never shown to readers). Absent for a story saved
+ * before this existed.
+ */
+function QualityBadges({ item }: { item: PendingItem }) {
+  if (item.qualityScore === null && !item.verification) return null;
+  const v = item.verification;
+  const failingClaims = v?.claims.filter((c) => c.status === "conflicting" || c.status === "unsupported").length ?? 0;
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      {item.qualityScore !== null && (
+        <span className={`px-1.5 py-0.5 font-bold ${item.qualityScore < 40 ? "bg-crimson-50 text-crimson" : item.qualityScore < 70 ? "bg-amber-100 text-amber-900" : "bg-green-50 text-green-800"}`}>
+          Quality {item.qualityScore}/100
+        </span>
+      )}
+      {v && (
+        <span
+          className={`px-1.5 py-0.5 font-bold ${v.agreement === "conflicting" ? "bg-crimson-50 text-crimson" : v.agreement === "confirmed" ? "bg-green-50 text-green-800" : "bg-surface text-muted"}`}
+        >
+          {v.agreement === "confirmed" ? `Confirmed by ${v.sourceCount} sources` : v.agreement === "conflicting" ? "Sources conflict" : "Single source"}
+        </span>
+      )}
+      {failingClaims > 0 && <span className="bg-crimson-50 px-1.5 py-0.5 font-bold text-crimson">{failingClaims} unsupported claim{failingClaims === 1 ? "" : "s"}</span>}
+      {v && v.conflicts.length > 0 && <span className="text-muted">({v.conflicts[0]})</span>}
+    </p>
   );
 }
 

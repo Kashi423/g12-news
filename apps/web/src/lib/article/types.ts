@@ -17,6 +17,12 @@ export interface ArticleDetail {
   sourceName: string;
   /** Link to the original story at the outlet. */
   sourceUrl: string;
+  /**
+   * Every outlet whose reporting fed this story, lead source first, for the "Source(s)" box at the
+   * end of the article. Always has at least one entry (the lead source, same as sourceName/sourceUrl
+   * above); more than one when another outlet's report of the same event was detected.
+   */
+  sources: { sourceName: string; sourceUrl: string }[];
   /** ISO 8601. */
   publishedAt: string;
   /** ISO 8601 of the last correction / re-categorization; null when the story was never changed. */

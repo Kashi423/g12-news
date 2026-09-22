@@ -15,16 +15,17 @@ import type { ArticleDetail } from "./types";
 /** "Related stories" shows this many. */
 export const RELATED_COUNT = 4;
 
-const DETAIL_SELECT = { ...SELECT, body: true, imageCredit: true, sourceUrl: true, correctedAt: true } as const;
+const DETAIL_SELECT = { ...SELECT, body: true, imageCredit: true, sourceUrl: true, correctedAt: true, clusterId: true } as const;
 
 interface DetailRow extends Row {
   body: string;
   imageCredit: string | null;
   sourceUrl: string;
   correctedAt: Date | null;
+  clusterId: string | null;
 }
 
-function toDetail(row: DetailRow): ArticleDetail {
+function toDetail(row: DetailRow, sources: { sourceName: string; sourceUrl: string }[]): ArticleDetail {
   const card = toArticle(row);
   return {
     id: card.id,
@@ -38,10 +39,24 @@ function toDetail(row: DetailRow): ArticleDetail {
     tags: card.tags,
     sourceName: card.sourceName,
     sourceUrl: row.sourceUrl,
+    sources,
     publishedAt: card.publishedAt,
     correctedAt: row.correctedAt ? row.correctedAt.toISOString() : null,
     isBreaking: card.isBreaking,
   };
+}
+
+/** Every outlet that fed this story's cluster, lead source first, deduplicated by outlet name. */
+async function clusterSources(
+  prisma: (typeof import("@g12/db"))["prisma"],
+  clusterId: string | null,
+  lead: { sourceName: string; sourceUrl: string },
+): Promise<{ sourceName: string; sourceUrl: string }[]> {
+  if (!clusterId) return [lead];
+  const rows = await prisma.clusterSource.findMany({ where: { clusterId }, orderBy: { publishedAt: "asc" }, select: { sourceName: true, url: true } });
+  const byName = new Map<string, string>([[lead.sourceName, lead.sourceUrl]]);
+  for (const row of rows) if (!byName.has(row.sourceName)) byName.set(row.sourceName, row.url);
+  return [...byName.entries()].map(([sourceName, sourceUrl]) => ({ sourceName, sourceUrl }));
 }
 
 /**
@@ -52,7 +67,9 @@ export const getArticle = cache(async (slug: string): Promise<ArticleDetail | nu
   if (!isValidSlug(slug)) return null;
   return guarded<ArticleDetail | null>(null, async (prisma) => {
     const row = await prisma.article.findFirst({ where: { slug, status: "PUBLISHED" }, select: DETAIL_SELECT });
-    return row ? toDetail(row) : null;
+    if (!row) return null;
+    const sources = await clusterSources(prisma, row.clusterId, { sourceName: row.sourceName, sourceUrl: row.sourceUrl });
+    return toDetail(row, sources);
   });
 });
 

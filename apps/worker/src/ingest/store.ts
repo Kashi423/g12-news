@@ -10,6 +10,8 @@ export interface SourceRecord {
   rssUrl: string;
   category: CategoryId;
   lastFetchedAt: Date | null;
+  /** Editorial trust, 1 (least) to 5 (most); one input to a story's quality score. Defaults to 3 (the middle) when absent, e.g. in older tests. */
+  reliability?: number;
 }
 
 export interface NewArticle {
@@ -33,6 +35,33 @@ export interface NewArticle {
 }
 
 export type CreateResult = { ok: true; id: string } | { ok: false; conflict: "slug" | "url" };
+
+/** One RSS report offered to a cluster: the lead report of a fresh story, or a corroborating one found later. */
+export interface SourceSnippet {
+  sourceId: string;
+  sourceName: string;
+  url: string;
+  guid: string | null;
+  title: string;
+  description: string;
+  publishedAt: Date;
+  /** The reporting source's editorial trust, 1-5 (Source.reliability at the time it was attached). */
+  reliability: number;
+}
+
+/**
+ * What changed after `attachSource` ran, so the pipeline can decide whether to log it / bump
+ * anything downstream. `sources` is every report the cluster now holds (lead + corroborating),
+ * newest first, for cross-source verification and public attribution. `articleBody` is the article's
+ * current text, for re-validating its claims against the (possibly just-grown) source list.
+ */
+export interface AttachSourceResult {
+  clusterId: string;
+  /** False when this exact URL was already attached (idempotent replay, e.g. a retried run). */
+  added: boolean;
+  sources: SourceSnippet[];
+  articleBody: string;
+}
 
 export interface LogEntry {
   sourceId: string;
@@ -61,4 +90,26 @@ export interface IngestStore {
   /** Record a fetch attempt. `lastSuccessAt` moves only when the attempt worked (lastError is null). */
   touchSource(id: string, update: { lastFetchedAt: Date; lastError: string | null }): Promise<void>;
   writeLog(entry: LogEntry): Promise<void>;
+
+  /**
+   * Offers one RSS report to the given article's story cluster: creates the cluster (tagged with
+   * `category`) the first time an article is offered a source, then adds `snippet` to it (a no-op if
+   * that exact URL is already attached). Called once for every accepted story's own lead report, and
+   * again whenever a later report is judged the same story (see pipeline.ts's duplicate-detection
+   * path). Returns every source the cluster now holds, for cross-source verification.
+   */
+  attachSource(articleId: string, category: CategoryId, snippet: SourceSnippet): Promise<AttachSourceResult>;
+  /** Writes back what attaching a source implied for the article: its internal quality signal. */
+  updateVerification(articleId: string, update: { qualityScore: number; verification: unknown; developing: boolean; touchedContent: boolean }): Promise<void>;
+
+  /** Adds to the pipeline's persistent AI-usage counters (survives process restarts; read by /admin). */
+  recordAiUsage(usage: { calls: number; inputTokens: number; outputTokens: number }): Promise<void>;
+
+  /**
+   * Named mutex so at most one ingestion pass runs at a time (a scheduled tick and a manual
+   * `ingest:once`, or two worker processes, must not double-process the same feeds). `acquire` is
+   * one atomic conditional write; only the caller whose write actually matched a row holds the lock.
+   */
+  acquireLock(key: string, ttlMs: number): Promise<boolean>;
+  releaseLock(key: string): Promise<void>;
 }

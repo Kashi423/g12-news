@@ -384,11 +384,17 @@ describe("require review before publish", () => {
   });
   const urgent = async (input: AnalyzeInput) => publish(input, { urgencyScore: /blast/i.test(input.title) ? 9 : 3 });
 
-  it("is off by default: accepted stories go live at once", async () => {
+  it("is off by default: accepted stories go live at once, except a sensitive one the automatic gate still holds for review", async () => {
     const { store, run } = harness([dawn()], feeds(), urgent);
     const report = await run();
-    assert.deepEqual([...new Set(store.articles.map((a) => a.status))], ["PUBLISHED"]);
-    assert.equal(report.sources[0]!.queued, 0);
+    // The switch itself is off, but a single-source crime/death story ("Blast kills...") is held for
+    // review regardless (requirement: stricter review for sensitive categories/content) — everything
+    // else still goes live at once.
+    const byTitle = new Map(store.articles.map((a) => [a.title, a.status]));
+    assert.equal(byTitle.get("Brief: Council approves new budget"), "PUBLISHED");
+    assert.equal(byTitle.get("Brief: Rain forecast for Punjab this week"), "PUBLISHED");
+    assert.equal(byTitle.get("Brief: Blast kills three near market"), "PENDING_REVIEW");
+    assert.equal(report.sources[0]!.queued, 1);
   });
 
   it("on: every accepted story waits as PENDING_REVIEW, even a breaking one, and is counted as accepted in the log", async () => {
@@ -464,5 +470,75 @@ describe("runIngestion for chosen sources", () => {
     const report = await run({ sourceIds: ["nope"] });
     assert.deepEqual(fetched, []);
     assert.deepEqual(report.sources, []);
+  });
+});
+
+describe("story clustering and cross-source verification", () => {
+  it("attaches a second outlet's report of the same story to the leader's cluster instead of only discarding it", async () => {
+    const { store, run } = harness([dawn(), geo()], {
+      [DAWN]: [item("Shehbaz Sharif meets Saudi crown prince in Riyadh", "https://www.dawn.com/news/200", 30)],
+      [GEO]: [item("PM Shehbaz Sharif meets Saudi crown prince in Riyadh", "https://www.geo.tv/latest/200", 12)],
+    });
+
+    await run();
+
+    const leader = store.articles.find((a) => a.sourceName === "Dawn")!;
+    assert.ok(leader.clusterId, "the leader gets a cluster from the moment it is saved");
+    const cluster = store.clusters.get(leader.clusterId!)!;
+    assert.deepEqual(
+      cluster.sources.map((s) => s.sourceName).sort(),
+      ["Dawn", "Geo News"],
+      "both the lead report and the corroborating one are kept on the cluster",
+    );
+    assert.equal(leader.developing, false, "two sources now agree, so the story is no longer single-source");
+    assert.ok(typeof leader.qualityScore === "number" && leader.qualityScore > 0);
+  });
+
+  it("keeps a fresh single-source story marked developing, with only its own report on the cluster", async () => {
+    const { store, run } = harness([dawn()], { [DAWN]: [item("Council approves new budget", "https://www.dawn.com/news/201")] });
+    await run();
+    const article = store.articles[0]!;
+    const cluster = store.clusters.get(article.clusterId!)!;
+    assert.equal(cluster.sources.length, 1);
+    assert.equal(article.developing, true);
+  });
+
+  it("still attaches the source when the AI (not the title auto-drop) judges it a duplicate", async () => {
+    const { store, run } = harness([dawn(), geo()], {
+      [DAWN]: [item("PM Shehbaz Sharif meets Saudi crown prince in Riyadh", "https://www.dawn.com/news/202", 30)],
+      [GEO]: [item("Shehbaz Sharif meets Saudi crown prince, Riyadh visit", "https://www.geo.tv/latest/202", 12)],
+    }, async (input) => (input.similar.length ? { kind: "duplicate", ofId: input.similar[0]!.id } : publish(input)));
+
+    await run();
+
+    const leader = store.articles.find((a) => a.sourceName === "Dawn")!;
+    const cluster = store.clusters.get(leader.clusterId!)!;
+    assert.equal(cluster.sources.length, 2);
+  });
+});
+
+describe("ingestion run lock", () => {
+  it("skips a run when another one already holds the lock", async () => {
+    const { store, run, calls } = harness([dawn()], { [DAWN]: [item("Council approves new budget", "https://www.dawn.com/news/300")] });
+    assert.equal(await store.acquireLock("ingest", 60_000), true);
+
+    const report = await run();
+
+    assert.equal(report.lockSkipped, true);
+    assert.equal(calls.length, 0);
+    assert.equal(store.articles.length, 0);
+  });
+
+  it("releases the lock at the end of a run, so the next one can proceed", async () => {
+    const { store, run } = harness([dawn()], { [DAWN]: [item("Council approves new budget", "https://www.dawn.com/news/301")] });
+    await run();
+    assert.equal(await store.acquireLock("ingest", 60_000), true, "the lock was released after the run finished");
+  });
+
+  it("a dry run never touches the lock", async () => {
+    const { store, run } = harness([dawn()], { [DAWN]: [item("Council approves new budget", "https://www.dawn.com/news/302")] });
+    assert.equal(await store.acquireLock("ingest", 60_000), true);
+    const report = await run({ dryRun: true });
+    assert.notEqual(report.lockSkipped, true, "a dry run does not need the lock, so it is not skipped by one held for a real run");
   });
 });

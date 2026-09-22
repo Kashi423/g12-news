@@ -49,9 +49,13 @@ model Source {
   // The last attempt that succeeded. The admin dashboard warns when this is over 2 hours old.
   lastSuccessAt DateTime?
   createdAt     DateTime  @default(now())
+  // Editorial trust, 1 (least) to 5 (most): one input to a story's quality score. Admin-set; the
+  // pipeline never infers it. Defaults to the middle so an unrated source is neither boosted nor penalized.
+  reliability   Int       @default(3)
 
-  articles   Article[]
-  ingestLogs IngestLog[]
+  articles       Article[]
+  ingestLogs     IngestLog[]
+  clusterSources ClusterSource[]
 }
 
 // Sitewide switches, one row per key (see packages/config/src/admin.ts for the keys). A missing row
@@ -95,13 +99,118 @@ model Article {
   viewCount    Int           @default(0)
   status       ArticleStatus @default(PUBLISHED)
 
-  dailyViews ArticleDailyView[]
+  // The story cluster this article is the public face of (see StoryCluster). Set for every accepted
+  // story, from the moment it is first saved: even a single-source story gets a one-source cluster,
+  // so a later corroborating report always has somewhere to attach.
+  clusterId String?       @unique
+  cluster   StoryCluster? @relation(fields: [clusterId], references: [id])
+  // 0-100 internal editorial signal (see apps/worker/src/ingest/quality.ts). Never shown publicly;
+  // read only by the admin dashboard and the review-routing gate.
+  qualityScore Int?
+  // Cross-source verification snapshot as of the last time this article's cluster changed: agreement
+  // level, confirmed/conflicting/unverified claims. Internal only (see apps/worker/src/ingest/verification.ts).
+  verification Json?
+  // True while only one source has reported this story, or sources disagree: shown internally
+  // (admin) as "Developing"; never surfaced to the public as an AI/editorial process detail.
+  developing Boolean @default(true)
+  // Bumped when a corroborating source adds material to the cluster. Distinct from `correctedAt`
+  // (an admin's manual edit): this is the pipeline's own "new information arrived" timestamp.
+  contentUpdatedAt DateTime?
+
+  dailyViews  ArticleDailyView[]
+  revisions   ArticleRevision[]
+  socialPosts SocialPost[]
 
   @@index([status, publishedAt(sort: Desc)])
   @@index([category, status, publishedAt(sort: Desc)])
   @@index([isBreaking, status, publishedAt(sort: Desc)])
   @@index([status, viewCount(sort: Desc)])
   @@index([sourceId])
+}
+
+// One event as reported across one or more RSS sources. Created the moment its first article is
+// saved (so every article has a cluster from birth) and grown as other outlets' reports of the same
+// event are detected (see pipeline.ts's duplicate-detection path, which now attaches rather than
+// only rejecting). The cluster, not the Article row, is where "all source URLs for this story" live.
+model StoryCluster {
+  id        String   @id @default(cuid())
+  category  Category
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  article   Article?
+  sources   ClusterSource[]
+  revisions ArticleRevision[]
+}
+
+// One RSS report that fed into a cluster: the lead report (the article's own original source) and
+// every corroborating report from other outlets after it. `url` is globally unique so the same feed
+// item is never attached twice, mirroring Article.sourceUrl's role for the lead report.
+model ClusterSource {
+  id          String       @id @default(cuid())
+  clusterId   String
+  cluster     StoryCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  sourceId    String
+  source      Source       @relation(fields: [sourceId], references: [id])
+  sourceName  String
+  url         String       @unique
+  // The feed's own <guid>, when it gives one and it differs from the link. Kept for traceability;
+  // not used as a lookup key (url already is).
+  guid        String?
+  title       String
+  description String
+  publishedAt DateTime
+  addedAt     DateTime     @default(now())
+
+  @@index([clusterId])
+}
+
+// A snapshot of an article's visible content immediately before the pipeline changed it in response
+// to a corroborating source (never on an admin edit: that is not versioned here, since the article
+// row itself is the record and the admin dashboard shows its own "last edited" state).
+model ArticleRevision {
+  id        String       @id @default(cuid())
+  clusterId String
+  cluster   StoryCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  articleId String
+  article   Article      @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  title     String
+  excerpt   String
+  body      String
+  // Plain-language note on why this revision was taken, e.g. "new source corroborated the story".
+  reason    String
+  createdAt DateTime     @default(now())
+
+  @@index([articleId, createdAt(sort: Desc)])
+}
+
+// Tracks one platform's publication of one article. Created when an article first goes live (or is
+// approved out of review) and updated as the configured SocialPublisher attempts it (see
+// apps/worker/src/ingest/social.ts). Real network posting needs a platform adapter and credentials
+// the pipeline does not assume; the default adapter logs the intended post and marks it POSTED so the
+// bookkeeping and retry logic are exercised even before real credentials exist.
+model SocialPost {
+  id        String   @id @default(cuid())
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  platform  String
+  status    String   @default("PENDING")
+  postId    String?
+  error     String?
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([articleId])
+  @@index([status])
+}
+
+// A single named mutex row so at most one ingestion pass runs at a time, even if the scheduler and a
+// manual `ingest:once` (or two worker processes) overlap. `acquire` is one atomic conditional UPDATE
+// (see prisma-store.ts): whoever's UPDATE actually matches a row holds the lock.
+model PipelineLock {
+  key         String    @id
+  lockedUntil DateTime?
 }
 
 // Page views per story per Pakistan calendar day, so the admin dashboard can name "the most-viewed

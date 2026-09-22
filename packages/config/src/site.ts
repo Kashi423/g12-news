@@ -1,9 +1,10 @@
 /**
  * Sitewide disclaimer. Render it in the footer and on every article page.
- * Stories are AI-summarized, so readers must always be told where they come from.
+ * Readers must always be told where a story's reporting came from. Deliberately says nothing about
+ * how the summary was produced (no "AI", "automated" or similar) — that fuller disclosure lives on
+ * the dedicated /disclaimer page instead, not on the article-reading surface (see DisclaimerPage).
  */
-export const DISCLAIMER =
-  "G12 News is an automated aggregator. Stories are AI-summarized from the original outlets linked in each article.";
+export const DISCLAIMER = "G12 News is a news aggregator. Every story is based on reporting from the outlet linked within it.";
 
 /**
  * `rel` for every outbound "Originally reported by [Outlet]" link on an article page: it passes no

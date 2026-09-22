@@ -1,0 +1,17 @@
+# Netlify build config for the npm-workspaces monorepo. The Next.js app is apps/web; Netlify installs
+# dependencies from the detected workspace root (this file's directory) and then runs `command` with
+# apps/web as the working directory, per Netlify's monorepo support.
+[build]
+base = "apps/web"
+command = "npm run build"
+publish = ".next"
+
+[functions]
+directory = "netlify/functions"
+node_bundler = "esbuild"
+
+[[plugins]]
+package = "@netlify/plugin-nextjs"
+
+[build.environment]
+NODE_VERSION = "20.19"

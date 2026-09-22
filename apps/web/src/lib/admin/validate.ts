@@ -48,10 +48,31 @@ export interface SourceInput {
   rssUrl: string;
   category: CategoryId;
   isActive: boolean;
+  reliability: number;
 }
 
-/** Add / edit a source. Only http(s) feeds: the server will fetch this address. */
-export function validateSource(input: { name?: unknown; rssUrl?: unknown; category?: unknown; isActive?: unknown }): Checked<SourceInput> {
+const RELIABILITY_RANGE = [1, 2, 3, 4, 5] as const;
+
+/**
+ * Blocks a feed address that resolves to the machine's own network rather than the open internet:
+ * the server fetches whatever address is saved here, so a source pointed at localhost or a private
+ * IP would let the admin form be used to probe the server's internal network (SSRF).
+ */
+function isPublicHttpUrl(url: URL): boolean {
+  const host = url.hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return false;
+  // IPv4 in dotted form: reject loopback, private, link-local and metadata-service ranges.
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (ipv4) {
+    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+    if (a === 127 || a === 10 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return false;
+  }
+  if (host === "::1" || host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd")) return false;
+  return true;
+}
+
+/** Add / edit a source. Only http(s) feeds on the open internet: the server will fetch this address. */
+export function validateSource(input: { name?: unknown; rssUrl?: unknown; category?: unknown; isActive?: unknown; reliability?: unknown }): Checked<SourceInput> {
   const name = text(input.name).replace(/\s+/g, " ");
   if (name.length < 2) return { ok: false, error: "Give the source a name." };
   if (name.length > LIMITS.sourceName) return { ok: false, error: `The name is over ${LIMITS.sourceName} characters.` };
@@ -64,6 +85,9 @@ export function validateSource(input: { name?: unknown; rssUrl?: unknown; catego
     return { ok: false, error: "The feed address is not a valid web address (it should start with https://)." };
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return { ok: false, error: "The feed address must start with http:// or https://." };
+  if (!isPublicHttpUrl(url)) return { ok: false, error: "That address is not reachable on the public internet." };
   if (!isCategory(input.category)) return { ok: false, error: "Choose a default category." };
-  return { ok: true, value: { name, rssUrl: url.toString(), category: input.category, isActive: input.isActive === true || input.isActive === "on" || input.isActive === "true" } };
+  const reliabilityNumber = Number.parseInt(text(input.reliability) || "3", 10);
+  const reliability = (RELIABILITY_RANGE as readonly number[]).includes(reliabilityNumber) ? reliabilityNumber : 3;
+  return { ok: true, value: { name, rssUrl: url.toString(), category: input.category, isActive: input.isActive === true || input.isActive === "on" || input.isActive === "true", reliability } };
 }

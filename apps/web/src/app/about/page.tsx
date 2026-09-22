@@ -43,7 +43,7 @@ export default function AboutPage() {
           <strong>Automatic checks run.</strong> A summary that repeats a run of the outlet&rsquo;s own wording, or is too short or too long, is not published.
         </li>
         <li>
-          <strong>The story goes live with its source.</strong> Every story shows the outlet&rsquo;s name, a clearly marked link to the original report, and an &ldquo;AI-generated&rdquo; label. Stories the AI judges to be urgent and very recent are marked as breaking news.
+          <strong>The story goes live with its source.</strong> Every story shows the outlet&rsquo;s name and a clearly marked link to the original report. Stories the AI judges to be urgent and very recent are marked as breaking news.
         </li>
       </ol>
 
@@ -66,7 +66,10 @@ export default function AboutPage() {
 
       <h2>What we do not do</h2>
       <ul>
-        <li>We do not claim to report the news ourselves, and we never invent a reporter&rsquo;s name. The byline on every story is &ldquo;G12 News Desk&rdquo;, and the story says plainly that an AI wrote it.</li>
+        <li>
+          We do not claim to report the news ourselves, and we never invent a reporter&rsquo;s name. The byline on every story is &ldquo;G12 News Desk&rdquo;; how each story is actually produced is disclosed on this page and in our{" "}
+          <Link href="/disclaimer">disclaimer</Link>, not repeated on every story.
+        </li>
         <li>We do not copy outlets&rsquo; articles. We publish short summaries in new words and send readers to the original.</li>
         <li>We have no comment sections, because nobody moderates them.</li>
       </ul>

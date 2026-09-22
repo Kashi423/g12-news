@@ -43,6 +43,9 @@ const nextConfig = {
         headers: [
           { key: "Cache-Control", value: "private, no-store, max-age=0" },
           { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+          // Nobody else's page may embed the dashboard in a frame and trick a click on it.
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "X-Frame-Options", value: "DENY" },
         ],
       },
       {

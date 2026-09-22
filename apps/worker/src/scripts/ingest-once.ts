@@ -12,6 +12,7 @@ import { runIngestion } from "../ingest/pipeline";
 import { usage } from "../lib/ai";
 import { aiLabel } from "../lib/provider";
 import { createRunDeps, disconnectDatabase, missingEnv } from "../runtime";
+import { publishPendingArticles } from "../social";
 
 function flagValue(args: string[], name: string): string | undefined {
   const inline = args.find((a) => a.startsWith(`--${name}=`));
@@ -57,6 +58,10 @@ try {
   console.log(formatReport(report));
   if (usage.calls > 0) {
     console.log(`AI usage: ${usage.calls} call(s), ${usage.inputTokens.toLocaleString()} input tokens, ${usage.outputTokens.toLocaleString()} output tokens`);
+  }
+  if (!dryRun) {
+    const social = await publishPendingArticles();
+    if (social.attempted > 0) console.log(`Social posts: ${social.attempted} of ${social.checked} recent live stories had a platform to try.`);
   }
 } catch (error) {
   console.error(`\ningest:once failed: ${error instanceof Error ? (error.stack ?? error.message) : error}`);

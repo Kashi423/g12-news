@@ -2,7 +2,7 @@
 
 **Pakistan, As It Happens** — a fully AI-automated Pakistani news portal. Stories are pulled from RSS feeds, then categorized, rewritten and scored for urgency by an AI model. Nobody writes articles by hand.
 
-> **Status:** the workspace, database schema, brand theme, placeholder layout, the **automated ingestion pipeline** the **live breaking-news system**, the homepage, the **category pages** and the **article pages** are built. The pipeline runs on a **free** AI (Groq) or on Claude (paid). Search, the static pages and the admin area are later steps.
+> **Status:** the workspace, database schema, brand theme, placeholder layout, the **automated ingestion pipeline** the **live breaking-news system**, the homepage, the **category pages** and the **article pages** are built. The pipeline runs on a **free** AI (Groq) or on Claude (paid). Site search, the static pages and the **admin dashboard** (`/admin`) are built too.
 
 ## Structure
 
@@ -12,6 +12,7 @@ apps/
     src/components/breaking/   ticker, homepage block, badge, live provider
     src/lib/breaking/          queries, live-stream broker, browser client, state
     src/app/api/breaking*/     /api/breaking (JSON) and /api/breaking-stream (SSE)
+    src/app/admin/             the owner-only dashboard (see Admin dashboard); src/lib/admin, src/components/admin
     src/app/category/[slug]/   the nine category pages
     src/components/category/   their header, filter bar, grid, pager, sidebar, empty states
     src/lib/category/          cursor paging, URL parsing, queries, tag ranking, SEO metadata
@@ -22,6 +23,7 @@ apps/
     src/ingest/            fetch, dedupe, pipeline, database store, report
     src/scripts/           ingest-once.ts, seed-sources.ts
     src/scheduler.ts       BullMQ (Redis) or node-cron
+    src/admin.ts           what the dashboard calls: "Fetch now" for one source, feed check (same pipeline code)
 packages/
   db/         Prisma schema, migrations and the shared client (PostgreSQL)
   config/     Shared constants: site info + disclaimer, categories, starter RSS sources
@@ -218,6 +220,34 @@ After a deploy, the first request for the homepage (and static pages) is answere
 - The `SearchAction` is valid and harmless, but Google announced in late 2024 that it would stop showing the sitelinks search box, so do not expect one.
 - Structured data helps search engines understand a page; it does not make one rank. Nothing on the site claims more than is true (the author is the organisation, the source is named and linked).
 
+## Admin dashboard
+
+`/admin` is a page for the owner only: one email and password, no roles. It shows whether the pipeline is healthy without reading every story, lets you hold new stories for approval, and lets you fix or remove anything that got through.
+
+**Set it up once** (nobody can sign in until you do):
+
+```bash
+npm run admin:setup          # asks for your email and a password (min. 10 characters), saves them to .env
+```
+
+It stores your email, a salted one-way hash of the password (never the password itself), a random session secret and a health-check token in the root `.env`. Restart the website, open `/admin` and sign in. Running it again changes the email or password and signs out every old session. Failed sign-ins are rate limited, the session is a signed cookie limited to `/admin` (7 days), and the page is never cached or indexed.
+
+**Review before publish.** The switch at the top of the dashboard (stored in the `Setting` table, key `requireReviewBeforePublish`):
+
+- **Off (default):** the pipeline behaves as before; an accepted story is saved `PUBLISHED` and is live at once.
+- **On:** every story the AI accepts, breaking news included, is saved as `PENDING_REVIEW` and appears nowhere on the public site (pages, search, sitemap, breaking ticker) until you approve it. The pipeline reads the switch from the database for every story it saves, so flipping it takes effect on the very next story with no restart. Queued stories also count when the pipeline looks for duplicates, so two outlets' copies of one story are not both queued.
+- **Pending review** tab (always visible, with a count): newest first, with headline, category, urgency, source, a link to the original, how long it has waited and the full AI text. **Approve** (goes live, `publishedAt` = now), **Edit & approve** (change headline, summary, text or category first), **Reject** (stays off the site and is never fetched again from the same link), plus select all / Approve selected / Approve all / Reject selected. A story that waited so long that it is no longer inside the 6-hour breaking window loses its breaking flag when approved, so an old story does not become "breaking" again.
+
+**The other sections:** *Pipeline health* (every source, last fetch, last success, last error, and **Fetch now**, which runs the worker's own ingestion code for that one source inside the website process, so the website needs the same AI key in `.env` as the worker); *Ingestion log* (last 100 runs); *Sources* (add, edit, switch off; a new or changed feed address is test-fetched and a stale or empty feed is reported); *Articles* (search and filter; unpublish / republish, move to another category, mark or unmark breaking, delete). At the top: articles live, published today by category (Pakistan time), the most-viewed story **today** (from a per-day view counter, so it starts counting when this feature is deployed) and the queue size.
+
+**Delete** removes a story from the site and wipes its text, but keeps an empty stub row: deleting the row itself would let the pipeline fetch the same story from the same feed again on its next run.
+
+**Warnings.** A red banner appears if a source has had no successful fetch for over 2 hours, or if the whole pipeline has not run in that time (then it is one banner, not one per source). With review on, an amber banner appears when a queued story has waited over 4 hours; those stories are also highlighted in the queue. The dashboard refreshes itself every minute while the tab is open.
+
+**Getting warned when you are not looking** (the alerting hook): `GET /api/admin/health?token=<HEALTH_CHECK_TOKEN>` answers `200 {"ok":true}` when nothing is wrong and `503` with the same warnings as the banners otherwise (also `503` if the database is unreachable). Point a free uptime monitor (UptimeRobot, Better Stack, Healthchecks.io) at it and let it email or text you when it is not 200. Without `HEALTH_CHECK_TOKEN` the endpoint does not exist. The warnings all come from `computeAlerts()` in `apps/web/src/lib/admin/alerts.ts`; that is the one place to plug in another delivery channel.
+
+After pulling this feature run `npm run db:deploy` (an additive migration) and **restart the worker**: a worker started before the update does not know about the review switch and would publish everything.
+
 ## Free AI with Groq
 
 Every hosted AI needs an API key; Groq's is free, needs no credit card, and takes a minute:
@@ -304,6 +334,7 @@ The 33 starter feeds cover all nine categories. Twenty-nine were fetched and par
 | `npm run start:worker` | The worker without file watching (runs through `tsx`, also in production) |
 | `npm run ingest:dry` / `ingest:sample` / `ingest:once` | Manual ingestion passes (see above) |
 | `npm run seed` | Verify and insert the starter sources |
+| `npm run admin:setup` | Choose the admin email and password for `/admin` (saved to `.env`) |
 | `npm test` | Run all test suites (config, web, worker; none need a database, network or API key) |
 | `npm run typecheck` | Type-check every workspace |
 | `npm run lint` | ESLint (web) |
@@ -314,13 +345,13 @@ The 33 starter feeds cover all nine categories. Twenty-nine were fetched and par
 
 ## Database
 
-The schema is `packages/db/prisma/schema.prisma`: `Source`, `Article`, `IngestLog`, plus the `Category` and `ArticleStatus` enums. It is PostgreSQL-only (it uses enums and `String[]` tags). Import from the shared package in either app:
+The schema is `packages/db/prisma/schema.prisma`: `Source`, `Article`, `IngestLog`, plus `Setting` (sitewide switches), `ArticleDailyView` (views per story per day) and the `Category` and `ArticleStatus` enums (`PUBLISHED`, `DRAFT` = unpublished, `REJECTED`, `PENDING_REVIEW`). It is PostgreSQL-only (it uses enums and `String[]` tags). Import from the shared package in either app:
 
 ```ts
 import { prisma, Category, ArticleStatus } from "@g12/db";
 ```
 
-After changing the schema, run `npm run db:migrate` and commit the new folder in `packages/db/prisma/migrations/`. Public pages must only show articles with `status: "PUBLISHED"`.
+After changing the schema, run `npm run db:migrate` and commit the new folder in `packages/db/prisma/migrations/`. Public pages must only show articles with `status: "PUBLISHED"` (`PENDING_REVIEW` stories are invisible until approved).
 
 ## Categories and sources
 

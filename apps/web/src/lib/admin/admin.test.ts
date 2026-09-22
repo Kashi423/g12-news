@@ -247,7 +247,7 @@ describe("form validation", () => {
 
   it("accepts a feed address only when it is http(s)", () => {
     const ok = validateSource({ name: " Dawn — Business ", rssUrl: " https://www.dawn.com/feeds/business ", category: "BUSINESS", isActive: "on" });
-    assert.deepEqual(ok, { ok: true, value: { name: "Dawn — Business", rssUrl: "https://www.dawn.com/feeds/business", category: "BUSINESS", isActive: true } });
+    assert.deepEqual(ok, { ok: true, value: { name: "Dawn — Business", rssUrl: "https://www.dawn.com/feeds/business", category: "BUSINESS", isActive: true, reliability: 3 } });
     assert.equal(validateSource({ name: "X feed", rssUrl: "ftp://x.com/rss", category: "WORLD", isActive: true }).ok, false);
     assert.equal(validateSource({ name: "X feed", rssUrl: "javascript:alert(1)", category: "WORLD", isActive: true }).ok, false);
     assert.equal(validateSource({ name: "X feed", rssUrl: "not a url", category: "WORLD", isActive: true }).ok, false);
@@ -256,5 +256,25 @@ describe("form validation", () => {
     const off = validateSource({ name: "X feed", rssUrl: "https://x.com/rss", category: "WORLD" });
     assert.ok(off.ok);
     assert.equal(off.value.isActive, false, "an unchecked box means switched off");
+  });
+
+  it("rejects a feed address on the server's own network (SSRF)", () => {
+    for (const rssUrl of ["http://localhost/rss", "http://127.0.0.1/rss", "http://10.0.0.5/rss", "http://192.168.1.1/rss", "http://169.254.169.254/latest/meta-data", "http://internal.local/rss"]) {
+      assert.equal(validateSource({ name: "X feed", rssUrl, category: "WORLD", isActive: true }).ok, false, rssUrl);
+    }
+    assert.equal(validateSource({ name: "X feed", rssUrl: "https://www.dawn.com/feed", category: "WORLD", isActive: true }).ok, true);
+  });
+
+  it("defaults reliability to 3 and only accepts 1-5", () => {
+    const base = { name: "X feed", rssUrl: "https://x.com/rss", category: "WORLD" as const, isActive: true };
+    const unset = validateSource(base);
+    assert.ok(unset.ok);
+    assert.equal(unset.value.reliability, 3);
+    const five = validateSource({ ...base, reliability: "5" });
+    assert.ok(five.ok);
+    assert.equal(five.value.reliability, 5);
+    const outOfRange = validateSource({ ...base, reliability: "9" });
+    assert.ok(outOfRange.ok);
+    assert.equal(outOfRange.value.reliability, 3, "an out-of-range value falls back to the default rather than being saved");
   });
 });
