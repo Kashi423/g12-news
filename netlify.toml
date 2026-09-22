@@ -5,6 +5,13 @@
 base = "apps/web"
 command = "npm run build"
 publish = ".next"
+# apps/web pulls in @g12/worker, @g12/config and @g12/db as npm-workspace dependencies (the ingestion
+# pipeline the Netlify functions call into lives in apps/worker, not apps/web), but Netlify's default
+# monorepo change-detection only watches the base directory. Without this, a commit that only touches
+# apps/worker or packages/* is wrongly seen as "no content change" and the build is skipped, leaving
+# the site on stale code (this happened once already). `:/` pathspecs match from the repo root
+# regardless of this file's `base` setting. Exit 0 = skip; exit 1 (git diff found a change) = build.
+ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- ':/apps/web' ':/apps/worker' ':/packages'"
 
 [functions]
 directory = "netlify/functions"
