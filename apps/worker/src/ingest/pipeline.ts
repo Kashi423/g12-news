@@ -116,6 +116,7 @@ const REASON_LABEL: Record<RejectReason, string> = {
   insufficient_content: "Rejected: not enough content to summarize",
   model_refusal: "Rejected: the AI declined to process this item",
   duplicate: "Rejected: duplicate of an earlier story",
+  no_image: "Rejected: no image available",
 };
 
 function blankReport(source: SourceRecord): SourceReport {
@@ -421,6 +422,16 @@ export async function runIngestion(deps: RunDeps, options: RunOptions = {}): Pro
         // Similar to another item in this wave: decide after that one is done, so we compare against what was actually published.
         if (inWave.matches(c.title, settings.candidateSimilarity, 1).length > 0) {
           next.push(c);
+          continue;
+        }
+        // No picture: rejected before an AI call is spent on it. A corroborating report of an
+        // already-published story is still checked for duplication above (so it can attach to that
+        // story's cluster even without its own image); this only stops a genuinely new, imageless
+        // story from becoming a published article with none.
+        if (!c.imageUrl) {
+          if (!dryRun) await saveRejected(c, "no_image");
+          else c.report.rejected++;
+          log(`  - REJECTED   no_image  "${truncate(c.title, 70)}"  <- ${c.outlet}`);
           continue;
         }
         // A published story is indexed under its own headline and the original one; show each article to the AI once.

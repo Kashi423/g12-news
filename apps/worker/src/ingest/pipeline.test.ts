@@ -27,12 +27,15 @@ const source = (id: string, name: string, rssUrl: string, category: SourceRecord
 const dawn = () => source("s-dawn", "Dawn — Pakistan", DAWN);
 const geo = () => source("s-geo", "Geo News — Pakistan", GEO);
 
+// A picture by default: most tests are not about images, and a picture-less item is now rejected
+// outright (see "rejects an item with no picture" below), so a null default would sink almost every
+// other test in this file. Tests that care about images override it explicitly.
 const item = (title: string, url: string, minutesAgo = 10, snippet = "A short description of the story."): FeedItem => ({
   title,
   url,
   snippet,
   publishedAt: ago(minutesAgo),
-  imageUrl: null,
+  imageUrl: "https://example.com/photo.jpg",
 });
 
 const publish = (input: AnalyzeInput, over: Partial<Extract<AnalysisOutcome, { kind: "publish" }>> = {}): AnalysisOutcome => ({
@@ -108,18 +111,28 @@ describe("runIngestion", () => {
     assert.equal(report.sources.reduce((n, s) => n + s.published, 0), 3);
   });
 
-  it("stores the image and its credit; a story with no picture keeps no credit", async () => {
+  it("stores the image and its credit", async () => {
     const withCredit: FeedItem = { ...item("Flood waters recede in Sindh", "https://www.dawn.com/news/40"), imageUrl: "https://i.dawn.com/a.jpg", imageCredit: "AP Photo/Fareed Khan" };
     const uncredited: FeedItem = { ...item("Wheat prices ease at the mandi", "https://www.dawn.com/news/41"), imageUrl: "https://i.dawn.com/b.jpg" };
-    const noPicture: FeedItem = { ...item("Cabinet meets on Thursday", "https://www.dawn.com/news/42"), imageCredit: "Orphan credit" };
-    const { store, run } = harness([dawn()], { [DAWN]: [withCredit, uncredited, noPicture] });
+    const { store, run } = harness([dawn()], { [DAWN]: [withCredit, uncredited] });
 
     await run();
 
     const byUrl = new Map(store.articles.map((a) => [a.sourceUrl, a]));
     assert.equal(byUrl.get("https://www.dawn.com/news/40")!.imageCredit, "AP Photo/Fareed Khan");
     assert.equal(byUrl.get("https://www.dawn.com/news/41")!.imageCredit, null);
-    assert.equal(byUrl.get("https://www.dawn.com/news/42")!.imageCredit, null, "a credit without a picture is dropped");
+  });
+
+  it("rejects an item with no picture instead of publishing it, without spending an AI call", async () => {
+    const noPicture: FeedItem = { ...item("Cabinet meets on Thursday", "https://www.dawn.com/news/42"), imageUrl: null, imageCredit: "Orphan credit" };
+    const { store, run, calls } = harness([dawn()], { [DAWN]: [noPicture] });
+
+    const report = await run();
+
+    assert.equal(calls.length, 0, "rejected before the AI is asked");
+    assert.equal(store.articles[0]!.status, "REJECTED");
+    assert.match(store.articles[0]!.excerpt, /no image/i);
+    assert.equal(report.sources[0]!.rejected, 1);
   });
 
   it("skips URLs already stored (ignoring tracking params) and URLs repeated across feeds", async () => {
@@ -370,8 +383,8 @@ describe("runIngestion", () => {
   });
 
   it("treats a missing or future date as now", async () => {
-    const undated: FeedItem = { title: "Undated story", url: "https://www.dawn.com/news/130", snippet: "x", publishedAt: null, imageUrl: null };
-    const future: FeedItem = { title: "Future dated tale", url: "https://www.dawn.com/news/131", snippet: "x", publishedAt: new Date(NOW.getTime() + 6 * 3_600_000), imageUrl: null };
+    const undated: FeedItem = { title: "Undated story", url: "https://www.dawn.com/news/130", snippet: "x", publishedAt: null, imageUrl: "https://example.com/photo.jpg" };
+    const future: FeedItem = { title: "Future dated tale", url: "https://www.dawn.com/news/131", snippet: "x", publishedAt: new Date(NOW.getTime() + 6 * 3_600_000), imageUrl: "https://example.com/photo.jpg" };
     const { store, run } = harness([dawn()], { [DAWN]: [undated, future] });
     await run();
     assert.deepEqual(store.articles.map((a) => a.publishedAt.toISOString()), [NOW.toISOString(), NOW.toISOString()]);
@@ -501,6 +514,21 @@ describe("story clustering and cross-source verification", () => {
     const cluster = store.clusters.get(article.clusterId!)!;
     assert.equal(cluster.sources.length, 1);
     assert.equal(article.developing, true);
+  });
+
+  it("still attaches a picture-less corroborating report to the leader's cluster, even though it could never be a leader itself", async () => {
+    const geoNoPicture: FeedItem = { ...item("PM Shehbaz Sharif meets Saudi crown prince in Riyadh", "https://www.geo.tv/latest/210", 12), imageUrl: null };
+    const { store, run, calls } = harness([dawn(), geo()], {
+      [DAWN]: [item("Shehbaz Sharif meets Saudi crown prince in Riyadh", "https://www.dawn.com/news/210", 30)],
+      [GEO]: [geoNoPicture],
+    });
+
+    await run();
+
+    assert.equal(calls.length, 1, "the picture-less follower is never sent to the AI: it is a duplicate first, so the image gate never runs on it");
+    const leader = store.articles.find((a) => a.sourceName === "Dawn")!;
+    const cluster = store.clusters.get(leader.clusterId!)!;
+    assert.deepEqual(cluster.sources.map((s) => s.sourceName).sort(), ["Dawn", "Geo News"]);
   });
 
   it("still attaches the source when the AI (not the title auto-drop) judges it a duplicate", async () => {

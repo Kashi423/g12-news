@@ -1,6 +1,9 @@
 import type { CategoryId } from "@g12/config";
 
-/** Why an item was not published. "duplicate" comes from title matching; the rest from the AI. */
+/**
+ * Why an item was not published. "duplicate" and "no_image" are decided by the pipeline itself
+ * before the AI is ever asked; the rest come from the AI's own judgement.
+ */
 export type RejectReason =
   | "advertisement"
   | "press_release"
@@ -9,7 +12,8 @@ export type RejectReason =
   | "not_relevant"
   | "insufficient_content"
   | "model_refusal"
-  | "duplicate";
+  | "duplicate"
+  | "no_image";
 
 /** What the pipeline sends to the AI for one feed item. */
 export interface AnalyzeInput {
